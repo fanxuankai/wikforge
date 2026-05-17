@@ -87,6 +87,15 @@ class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=64)
+
+
+class UpdateProfileRequest(BaseModel):
+    display_name: str | None = Field(None, min_length=1, max_length=100)
+
+
 # ─── Dependencies ───────────────────────────────────────────────────
 
 
@@ -205,3 +214,50 @@ async def oidc_callback(
     """OIDC 回调：换 token、自动绑定/创建用户、签发本地 JWT。"""
     token_pair = await auth_service.handle_oidc_callback(code)
     return TokenResponse(**token_pair)
+
+
+@router.post("/change-password", status_code=204)
+async def change_password(
+    body: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """修改当前用户的密码。
+
+    需要正确的旧密码; 新密码强度由 Pydantic Schema 校验 (8-64 字符)。
+    成功后不刷新 JWT, 客户端如需可以重新登录获得新 token。
+    """
+    from app.core.security import hash_password, verify_password
+    from app.core.exceptions import UnauthorizedException, ValidationException
+
+    # OIDC 账号 (本地无密码) 不能用此端点改密码
+    if not current_user.password_hash:
+        raise ValidationException("OIDC 账号请到身份提供方修改密码")
+
+    if not verify_password(body.current_password, current_user.password_hash):
+        raise UnauthorizedException("当前密码不正确")
+
+    if body.current_password == body.new_password:
+        raise ValidationException("新密码不能与当前密码相同")
+
+    current_user.password_hash = hash_password(body.new_password)
+    await db.flush()
+    return None
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_me(
+    body: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    """更新当前用户的可编辑字段 (目前仅 display_name)。"""
+    if body.display_name is not None:
+        current_user.display_name = body.display_name
+    await db.flush()
+    await db.refresh(current_user)
+    return UserResponse(
+        id=str(current_user.id),
+        email=current_user.email,
+        display_name=current_user.display_name,
+    )

@@ -1,12 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LogOut, User } from "lucide-react";
+import { LogOut, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/auth-store";
 
 /**
- * 用户信息展示组件（头像、名称、登出按钮）
+ * 用户信息展示组件（头像、名称、设置、登出按钮）
  * 用于顶部栏
  */
 export function UserMenu() {
@@ -23,7 +24,7 @@ export function UserMenu() {
   };
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2">
       {/* Avatar with initials */}
       <div className="flex items-center gap-2">
         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">
@@ -33,6 +34,18 @@ export function UserMenu() {
           {user.display_name || user.email}
         </span>
       </div>
+
+      {/* Settings */}
+      <Link href="/settings" passHref>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="账户设置"
+          title="账户设置"
+        >
+          <Settings className="h-4 w-4" />
+        </Button>
+      </Link>
 
       {/* Logout button */}
       <Button
