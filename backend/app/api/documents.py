@@ -631,3 +631,60 @@ async def batch_delete_documents(
             continue
 
     return BatchDeleteResponse(deleted=len(deleted_ids), ids=deleted_ids)
+
+
+# ─── Document Download (presigned URL) ─────────────────────────────────
+
+
+class DocumentDownloadResponse(BaseModel):
+    """文档下载响应: 返回 presigned URL 让前端直接从 MinIO 拉文件,
+    避免后端做反向代理 / 暴露内部 storage_path。
+    """
+
+    url: str
+    expires_in: int
+
+
+@router.get(
+    "/api/documents/{document_id}/download-url",
+    response_model=DocumentDownloadResponse,
+)
+async def get_document_download_url(
+    document_id: uuid.UUID,
+    expires_in: int = Query(600, ge=60, le=86400),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DocumentDownloadResponse:
+    """生成 MinIO 预签名 GET URL, 默认 10 分钟 TTL。
+
+    权限校验: 用户必须对文档所在 space 有访问权 (admin 全通)。
+    返回的 URL 直接指向 MinIO, 前端可直接 <a href> 或 <iframe>。
+    """
+    from fastapi import HTTPException
+    from app.core.minio import generate_presigned_get_url
+    from app.models.document import Document
+
+    doc = (
+        await db.execute(
+            select(Document.storage_path, Document.space_id, Document.title).where(
+                Document.id == document_id
+            )
+        )
+    ).one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    storage_path, space_id, _ = doc
+
+    allowed = await _get_user_allowed_space_ids(current_user, db)
+    if allowed is not None and space_id not in allowed:
+        raise HTTPException(status_code=403, detail="无权访问该文档")
+
+    if not storage_path:
+        raise HTTPException(status_code=404, detail="文档存储路径丢失")
+
+    url = generate_presigned_get_url(storage_path, expires_in=expires_in)
+    if not url:
+        raise HTTPException(status_code=500, detail="生成下载链接失败")
+
+    return DocumentDownloadResponse(url=url, expires_in=expires_in)

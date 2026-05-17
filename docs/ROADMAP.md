@@ -11,11 +11,11 @@
 
 | ID | 项目 | 工时 | 状态 |
 |---|---|---|---|
-| A1 | `list_spaces` 不做权限过滤 | 15 分钟 | ⬜ |
-| A2 | `list_documents` / `list_folders` 是否漏过滤 | 30 分钟 | ⬜ |
-| A3 | 旧 chunk score 不一致 (重建索引) | 15 分钟 | ⬜ |
-| A4 | EmbeddingService 走 LiteLLM Proxy 统一管控 | 30 分钟 | ⬜ |
-| A5 | LiteLLM Proxy 的 Redis 缓存生效验证 | 15 分钟 | ⬜ |
+| A1 | `list_spaces` 不做权限过滤 | 15 分钟 | ✅ |
+| A2 | `list_documents` / `list_folders` 是否漏过滤 | 30 分钟 | ✅ |
+| A3 | 旧 chunk score 不一致 (重建索引) | 15 分钟 | ✅ (随 IK 装时一起重建) |
+| A4 | EmbeddingService 走 LiteLLM Proxy 统一管控 | 30 分钟 | ✅ (验证通过 — `LITELLM_API_BASE=http://litellm:4000` 已生效) |
+| A5 | LiteLLM Proxy 的 Redis 缓存生效验证 | 15 分钟 | ✅ (验证通过 — Redis DB 1 有 cache key, 重复请求秒返) |
 | A6 | upload_files 的 commit 应该让 dependency 兜底 | 30 分钟 | ⬜ |
 | A7 | smoke-test.sh "创建空间失败" 提示优化 | 5 分钟 | ⬜ |
 
