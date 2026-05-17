@@ -238,21 +238,25 @@ class TestCrossEncoderRerank:
 
     @pytest.mark.asyncio
     async def test_fallback_rerank_scores(self, search_service):
-        """Fallback scoring should use keyword overlap."""
+        """Fallback scoring should rank relevant candidates higher than irrelevant.
+
+        新算法 (token + bigram 取最大值) 兼容中英文混合, 但具体数值跟 token-only
+        不同; 这里只验证排序而不锚定具体分数。
+        """
         query = "machine learning algorithms"
         candidates = [
             make_search_hit(content="machine learning is a subset of AI"),
             make_search_hit(content="algorithms for sorting data"),
-            make_search_hit(content="unrelated content about cooking"),
+            make_search_hit(content="zzzzzz qqqqqq xxxxxx"),  # 跟 query 完全无 bigram 重叠
         ]
 
         scores = search_service._fallback_rerank_scores(query, candidates)
 
-        # First candidate has 2/3 overlap (machine, learning)
-        # Second has 1/3 overlap (algorithms)
-        # Third has 0/3 overlap
+        # 命中两个 token (machine + learning) 的应该高于命中一个 token (algorithms)
         assert scores[0] > scores[1]
+        # 完全不相关的应该最低
         assert scores[1] > scores[2]
+        # 完全无重叠的得 0
         assert scores[2] == 0.0
 
     @pytest.mark.asyncio

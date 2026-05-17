@@ -817,17 +817,16 @@ class TestRAGAPISchemas:
         assert req.model == "gpt-4o"
 
     def test_session_info_schema(self):
-        """SessionInfo should hold session metadata."""
+        """SessionInfo holds session metadata aligned to frontend (id/last_active_at/preview)."""
         from app.api.rag import SessionInfo
 
         info = SessionInfo(
-            session_id="s1",
-            user_id="u1",
-            last_active=1700000000.0,
-            is_expired=False,
+            id="s1",
+            last_active_at="2026-05-17T15:00:00+00:00",
+            preview="第一条用户问题",
         )
-        assert info.session_id == "s1"
-        assert info.is_expired is False
+        assert info.id == "s1"
+        assert info.preview == "第一条用户问题"
 
     def test_message_item_schema(self):
         """MessageItem should hold message data."""

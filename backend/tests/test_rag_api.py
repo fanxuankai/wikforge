@@ -409,13 +409,14 @@ class TestListSessionsRoute:
         resp = client.get("/api/rag/sessions")
         assert resp.status_code == 200
         body = resp.json()
-        ids = sorted(s["session_id"] for s in body["sessions"])
+        ids = sorted(s["id"] for s in body["sessions"])
         assert ids == ["s1", "s2"]
-        # 字段齐全
+        # 字段齐全 (新 schema: id / last_active_at / preview)
         for s in body["sessions"]:
-            assert s["user_id"] == user_id
-            assert isinstance(s["last_active"], (int, float))
-            assert s["is_expired"] is False
+            assert "id" in s
+            # last_active_at 是 ISO 8601 字符串
+            assert isinstance(s["last_active_at"], str)
+            assert "preview" in s
 
     def test_returns_empty_when_no_sessions(self):
         """无会话时应返回空数组而非 404。"""

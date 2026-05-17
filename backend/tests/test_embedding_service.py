@@ -236,8 +236,27 @@ class TestDenseEmbeddingBatching:
         assert kwargs["api_key"] == "sk-test"
 
     @pytest.mark.asyncio
-    async def test_omits_optional_kwargs_when_blank(self, litellm_stub):
-        """空字符串 api_base / api_key 不应作为参数透传，避免覆盖默认。"""
+    async def test_omits_optional_kwargs_when_blank(self, litellm_stub, monkeypatch):
+        """空字符串 api_base / api_key 不应作为参数透传，避免覆盖默认。
+
+        显式 mock settings 让所有相关字段为空,以隔离测试环境的真实 .env。
+        """
+        from unittest.mock import MagicMock
+
+        mock_settings = MagicMock()
+        mock_settings.LITELLM_MODEL = "gpt-4o"
+        mock_settings.LITELLM_API_BASE = ""
+        mock_settings.LITELLM_API_KEY = ""
+        mock_settings.EMBEDDING_MODEL = ""
+        mock_settings.EMBEDDING_DIMENSIONS = 1024
+        mock_settings.EMBEDDING_TIMEOUT = 30.0
+        mock_settings.EMBEDDING_MAX_INPUT_CHARS = 6000
+        mock_settings.EMBEDDING_MAX_RETRIES = 2
+        monkeypatch.setattr(
+            "app.services.embedding_service.get_settings",
+            lambda: mock_settings,
+        )
+
         litellm_stub.aembedding.return_value = _make_response([[0.0] * 1024])
         service = EmbeddingService(api_base="", api_key="")
         await service.embed_chunks([{"id": "c", "text": "hi"}])

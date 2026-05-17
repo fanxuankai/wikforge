@@ -12,7 +12,7 @@ import math
 
 import pytest
 
-from backend.eval.metrics import (
+from eval.metrics import (
     EvalSample,
     dcg_at_k,
     evaluate,

@@ -123,7 +123,11 @@ class TestGetOpenSearchClient:
 
     @patch("app.core.opensearch.OpenSearch")
     def test_creates_client_with_host_and_port(self, mock_class):
-        """构造时必须使用 settings 的 host/port/auth。"""
+        """构造时必须使用 settings 的 host/port。
+
+        默认 ``OPENSEARCH_USE_SSL=False``,client 走 HTTP, 不传 http_auth (开发环境)。
+        生产启用 SSL 时见下面 ``test_passes_credentials_with_ssl``。
+        """
         mock_class.return_value = MagicMock()
 
         client = get_opensearch_client()
@@ -135,12 +139,9 @@ class TestGetOpenSearchClient:
         host_entry = kwargs["hosts"][0]
         assert "host" in host_entry
         assert "port" in host_entry
-        # http_auth 必须设置，避免连接被 OpenSearch 拒绝
-        assert kwargs.get("http_auth") is not None
-        # 自签证书场景下不应校验证书
-        assert kwargs.get("use_ssl") is True
-        assert kwargs.get("verify_certs") is False
-        # timeout 不可省略，避免请求挂死
+        # 默认 use_ssl=False (HTTP), 此模式下不传 http_auth
+        assert kwargs.get("use_ssl") is False
+        # timeout 不可省略,避免请求挂死
         assert kwargs.get("timeout") is not None
 
     @patch("app.core.opensearch.OpenSearch")
@@ -160,18 +161,23 @@ class TestGetOpenSearchClient:
     def test_passes_credentials_from_settings(
         self, mock_class, mock_get_settings
     ):
-        """配置中的 user/password 必须透传到 http_auth。"""
+        """SSL 启用时, user/password 透传到 http_auth。"""
         settings = MagicMock()
         settings.OPENSEARCH_HOST = "opensearch.example"
         settings.OPENSEARCH_PORT = 9201
         settings.OPENSEARCH_USER = "admin"
         settings.OPENSEARCH_PASSWORD = "Sup3r-Secret"
+        # 显式启用 SSL 才会触发 http_auth 注入
+        settings.OPENSEARCH_USE_SSL = True
+        settings.OPENSEARCH_VERIFY_CERTS = False
         mock_get_settings.return_value = settings
 
         get_opensearch_client()
 
         kwargs = mock_class.call_args.kwargs
         assert kwargs["http_auth"] == ("admin", "Sup3r-Secret")
+        assert kwargs["use_ssl"] is True
+        assert kwargs["verify_certs"] is False
         host_entry = kwargs["hosts"][0]
         assert host_entry["host"] == "opensearch.example"
         assert host_entry["port"] == 9201

@@ -32,6 +32,17 @@ import pytest
 
 
 def _install_qdrant_stubs() -> None:
+    # 如果真实 qdrant_client 已可用, 不要安装 stubs 以免污染其它测试。
+    # 这个 stub 只是为了让没装 qdrant-client 的 dev 环境也能 collect 这个文件。
+    try:
+        import qdrant_client  # noqa: F401
+        import qdrant_client.models  # noqa: F401
+        import qdrant_client.http.exceptions  # noqa: F401
+
+        return
+    except ImportError:
+        pass
+
     if "qdrant_client" in sys.modules and getattr(
         sys.modules["qdrant_client"], "_wikforge_test_stub", False
     ):
