@@ -1,46 +1,91 @@
 # =============================================================================
-# LiteLLM Proxy 配置
+# LiteLLM Proxy 配置 (按平台分组)
 #
-# 模型命名约定：
-#   - ``model_name``：暴露给 wikforge / 客户端的虚拟模型名
-#   - ``litellm_params.model``：实际后端模型，``<provider>/<model>`` 格式
+# 配置组织方式:
+# 1. 顶部 ``_platforms`` 段定义每个上游平台的 base URL + API Key
+#    (用 YAML 锚点 ``&xxx`` 标记, 后面 model_list 通过 ``<<: *xxx`` 引用)
+# 2. ``model_list`` 段声明每个虚拟模型挂在哪个平台 + 上游真实 model id
 #
-# 修改本文件后需要重启 litellm 容器：``docker compose restart litellm``。
-# 后续也可以通过 Admin UI（http://localhost:4000/ui）动态添加模型，
-# 通过 UI 添加的会写入 PostgreSQL，重启后保留。
+# 改 API Key / base URL 只需要改 _platforms 一处, 不必每个 model 改。
+# 新增模型只需要复制一行 ``model_name + <<: *platform + model: openai/<id>``。
+#
+# 修改后重启: ``docker compose restart litellm``
+# 也可以通过 Admin UI (http://localhost:4000/ui) 临时添加, 数据库会持久化。
 # =============================================================================
 
+
+# ─────────────────────────────────────────────────────────────────────────
+# 平台凭证 (YAML 锚点, 不会被 LiteLLM 解析为模型, 仅供下面引用)
+# ─────────────────────────────────────────────────────────────────────────
+_platforms:
+  # CPA 网关: 提供 OpenAI / Claude / Qwen / GLM / DeepSeek / Kimi 等多家模型
+  cpa: &cpa
+    api_base: https://litellm-upstream/v1
+    api_key: os.environ/CPA_API_KEY
+
+  # 阿里云百炼 (DashScope OpenAI 兼容协议): 提供 Embedding / 通义千问系列
+  dashscope: &dashscope
+    api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
+    api_key: os.environ/DASHSCOPE_API_KEY
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 暴露给 wikforge 的虚拟模型清单
+# ─────────────────────────────────────────────────────────────────────────
 model_list:
-  # ---------------------------------------------------------------------------
-  # Chat 模型 - 通过 CPA 网关路由
-  # ---------------------------------------------------------------------------
+  # ─── Chat 模型 (CPA 平台) ───────────────────────────────────────────
   - model_name: gpt-5.5
     litellm_params:
+      <<: *cpa
       model: openai/gpt-5.5
-      api_base: https://litellm-upstream/v1
-      api_key: os.environ/CPA_API_KEY
 
-  # ---------------------------------------------------------------------------
-  # Embedding 模型 - 通过阿里云百炼（DashScope OpenAI 兼容协议）
-  # 在 wikforge 启动前，请在 .env 中填入 DASHSCOPE_API_KEY
-  # ---------------------------------------------------------------------------
+  - model_name: gpt-5.4
+    litellm_params:
+      <<: *cpa
+      model: openai/gpt-5.4
+
+  - model_name: gpt-5.4-mini
+    litellm_params:
+      <<: *cpa
+      model: openai/gpt-5.4-mini
+
+  - model_name: gpt-5.3-codex
+    litellm_params:
+      <<: *cpa
+      model: openai/gpt-5.3-codex
+
+  - model_name: glm-5.1
+    litellm_params:
+      <<: *cpa
+      model: openai/glm-5.1
+
+  - model_name: kimi-k2.6
+    litellm_params:
+      <<: *cpa
+      model: openai/kimi-k2.6
+
+  - model_name: deepseek-v4-pro
+    litellm_params:
+      <<: *cpa
+      model: openai/deepseek-v4-pro
+
+  # ─── Embedding 模型 (DashScope 平台) ────────────────────────────────
   - model_name: text-embedding-v4
     litellm_params:
+      <<: *dashscope
       model: openai/text-embedding-v4
-      api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
-      api_key: os.environ/DASHSCOPE_API_KEY
-      # 百炼 v4 默认输出 1024 维, 与 Qdrant document_chunks.dense.size 对齐。
-      # 如需更高质量可改 dimensions: 1536/2048/3072 (但需同步改 Qdrant collection)。
 
-  # v3 保留为后备(质量略低但更便宜兼容性更稳),如需启用从 wikforge .env 改 EMBEDDING_MODEL=text-embedding-v3 即可
   - model_name: text-embedding-v3
     litellm_params:
+      <<: *dashscope
       model: openai/text-embedding-v3
-      api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
-      api_key: os.environ/DASHSCOPE_API_KEY
 
+
+# ─────────────────────────────────────────────────────────────────────────
+# 全局设置
+# ─────────────────────────────────────────────────────────────────────────
 litellm_settings:
-  # 缓存（Redis）：复用 wikforge-redis，使用独立 DB 以隔离 wikforge 业务键。
+  # 缓存(Redis): 复用 wikforge-redis, 用 DB 1 隔离 wikforge 业务键
   cache: true
   cache_params:
     type: redis
@@ -48,17 +93,18 @@ litellm_settings:
     port: 6379
     db: 1
 
-  # 默认请求超时（秒）。wikforge 后端有自己的超时控制，这里设大一点避免双重超时。
+  # 单次请求超时 (秒). wikforge 后端有自己的超时控制, 这里设大点避免双重超时
   request_timeout: 120
 
-  # 失败重试：单上游失败时本地重试 2 次再返回错误。
+  # 单上游失败本地重试次数
   num_retries: 2
 
-  drop_params: true                     # CPA 不识别的参数自动丢弃，避免 400
+  # 上游不识别的参数自动丢弃 (如 gpt-5 系列不接受 temperature=0.1)
+  drop_params: true
+
 
 general_settings:
-  # 启用 Admin UI 的 SSO/简单凭证登录由环境变量 UI_USERNAME / UI_PASSWORD 控制。
   master_key: os.environ/LITELLM_MASTER_KEY
   database_url: os.environ/DATABASE_URL
-  store_model_in_db: true   # 通过 UI 新增的模型持久化到数据库
-  store_prompts_in_spend_logs: false  # 出于隐私考虑不存原文 prompt
+  store_model_in_db: true              # UI 新增的模型持久化到数据库
+  store_prompts_in_spend_logs: false   # 不存原文 prompt
