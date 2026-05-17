@@ -76,3 +76,27 @@ async def fake_redis():
 def fixed_user_id() -> str:
     """可复用的固定用户 ID（避免每个测试都生成 UUID）。"""
     return str(uuid.uuid4())
+
+
+# ─── 全局 Celery 任务调度 mock ──────────────────────────────────────
+#
+# 单元测试不依赖真实 Celery broker。upload_service / feedback_service 等
+# 在落库后会调用 ``submit_pipeline()`` / ``celery_app.send_task()`` 入队,
+# 没有 mock 时 ``chain.apply_async()`` 会尝试连接 Redis broker 而 hang。
+# 这个 autouse fixture 把全局调度入口替换成 no-op, 不影响 Celery 任务
+# 自身的内部测试 (那些测试直接调函数, 不走 apply_async 路径)。
+
+
+@pytest.fixture(autouse=True)
+def _stub_celery_submit(monkeypatch):
+    """Globally short-circuit Celery task submission in unit tests."""
+    try:
+        from app.services import upload_service as _upload_svc
+
+        if getattr(_upload_svc, "_submit_pipeline", None) is not None:
+            monkeypatch.setattr(
+                _upload_svc, "_submit_pipeline", lambda *a, **kw: None
+            )
+    except Exception:
+        pass
+    yield

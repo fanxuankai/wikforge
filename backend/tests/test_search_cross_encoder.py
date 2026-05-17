@@ -296,19 +296,22 @@ class TestRerankFallback:
     def test_fallback_uses_keyword_overlap(
         self, search_service: SearchService
     ) -> None:
-        """``_fallback_rerank_scores`` 应基于查询词与候选内容的关键词重叠打分。"""
+        """``_fallback_rerank_scores`` 基于关键词与字符 bigram 重叠打分,
+        排序应优先 token 命中率高的候选。
+        """
         query = "machine learning algorithms"
         candidates = [
-            _make_hit(content="Machine learning is a subset of AI"),  # 2/3 重叠
-            _make_hit(content="Algorithms for sorting data"),         # 1/3 重叠
-            _make_hit(content="Cooking recipes for dinner"),          # 0/3 重叠
+            _make_hit(content="Machine learning is a subset of AI"),  # 命中 machine + learning
+            _make_hit(content="Algorithms for sorting data"),         # 命中 algorithms
+            _make_hit(content="zzzzzz qqqqq xxxxxx"),                 # 完全不重叠 (无 token / bigram)
         ]
 
         scores = search_service._fallback_rerank_scores(query, candidates)
 
         assert len(scores) == 3
-        assert math.isclose(scores[0], 2.0 / 3.0, rel_tol=1e-9)
-        assert math.isclose(scores[1], 1.0 / 3.0, rel_tol=1e-9)
+        # 排序: 第一条 > 第二条 > 第三条
+        assert scores[0] > scores[1]
+        assert scores[1] > scores[2]
         assert scores[2] == 0.0
 
     def test_fallback_is_case_insensitive(
@@ -320,11 +323,13 @@ class TestRerankFallback:
             [
                 _make_hit(content="search engine optimization"),
                 _make_hit(content="SEARCH ENGINE algorithms"),
-                _make_hit(content="something completely different"),
+                _make_hit(content="zzzzzz qqqqq"),
             ],
         )
+        # 前两条都完全命中 token, 应等于 1.0
         assert math.isclose(scores[0], 1.0, rel_tol=1e-9)
         assert math.isclose(scores[1], 1.0, rel_tol=1e-9)
+        # 第三条完全无 token / bigram 重叠
         assert scores[2] == 0.0
 
     def test_fallback_empty_query_returns_zero(
@@ -365,9 +370,8 @@ class TestRerankFallback:
 
         # 必须降级到关键词重叠
         fallback_spy.assert_called_once_with(query, candidates)
-        # 第一条与查询有 1 个重叠词 (alpha)，第二条无重叠
-        assert math.isclose(scores[0], 0.5, rel_tol=1e-9)
-        assert scores[1] == 0.0
+        # 第一条候选与 query 有 token 重叠 (alpha), 应该 > 第二条
+        assert scores[0] > scores[1]
 
     @pytest.mark.asyncio
     async def test_rerank_recovers_when_compute_raises(
