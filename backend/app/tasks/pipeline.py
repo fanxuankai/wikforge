@@ -215,8 +215,8 @@ def _task_decorator(**kwargs):
     name="pipeline.parse_document",
     max_retries=3,
     default_retry_delay=10,
-    soft_time_limit=55,
-    time_limit=60,
+    soft_time_limit=580,
+    time_limit=600,
 )
 def parse_document(self, document_id: str) -> dict:
     """Parse a document using the appropriate parser plugin.
@@ -439,8 +439,8 @@ def profile_match(self, parse_result: dict) -> dict:
     name="pipeline.universal_parser_check",
     max_retries=3,
     default_retry_delay=10,
-    soft_time_limit=55,
-    time_limit=60,
+    soft_time_limit=580,
+    time_limit=600,
 )
 def universal_parser_check(self, match_result: dict) -> dict:
     """任务 10.9：在 Profile 匹配后判断是否需要走 LLM 通用兜底解析。
@@ -628,8 +628,8 @@ def universal_parser_check(self, match_result: dict) -> dict:
     name="pipeline.process_document",
     max_retries=3,
     default_retry_delay=10,
-    soft_time_limit=55,
-    time_limit=60,
+    soft_time_limit=290,
+    time_limit=300,
 )
 def process_document(self, match_result: dict) -> dict:
     """Process document: cleaning, structural recognition, quality scoring, review-queue gating.
@@ -795,8 +795,8 @@ def process_document(self, match_result: dict) -> dict:
     name="pipeline.chunk_document",
     max_retries=3,
     default_retry_delay=10,
-    soft_time_limit=55,
-    time_limit=60,
+    soft_time_limit=290,
+    time_limit=300,
 )
 def chunk_document(self, process_result: dict) -> dict:
     """Chunk document into smaller pieces for embedding.
@@ -862,8 +862,8 @@ def chunk_document(self, process_result: dict) -> dict:
     name="pipeline.embed_chunks",
     max_retries=3,
     default_retry_delay=10,
-    soft_time_limit=55,
-    time_limit=60,
+    soft_time_limit=580,
+    time_limit=600,
 )
 def embed_chunks(self, chunk_result: dict) -> dict:
     """Generate embeddings for document chunks.
@@ -963,8 +963,8 @@ def embed_chunks(self, chunk_result: dict) -> dict:
     name="pipeline.index_chunks",
     max_retries=3,
     default_retry_delay=10,
-    soft_time_limit=55,
-    time_limit=60,
+    soft_time_limit=290,
+    time_limit=300,
 )
 def index_chunks(self, embed_result: dict) -> dict:
     """Index chunks into Qdrant and OpenSearch with dual-write transaction.
@@ -1135,8 +1135,8 @@ def submit_pipeline(document_id: str) -> None:
     name="pipeline.cleanup_document_indices",
     max_retries=3,
     default_retry_delay=10,
-    soft_time_limit=55,
-    time_limit=60,
+    soft_time_limit=290,
+    time_limit=300,
 )
 def cleanup_document_indices(self, process_result: dict) -> dict:
     """删除文档在 Qdrant / OpenSearch 中的旧 chunk（任务 11.11）。

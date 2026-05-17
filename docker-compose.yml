@@ -254,6 +254,33 @@ services:
       retries: 3
     restart: unless-stopped
 
+  # Celery beat: 定时任务调度器, 触发 watchdog (每 5 分钟扫一次卡住文档)
+  # 共享 backend 镜像, 使用最少的资源 (单进程, 无 worker 池)
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: wikforge-beat
+    command: celery -A app.core.celery_app:celery_app beat --loglevel=info
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-wikforge}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-wikforge_secret}
+      - POSTGRES_DB=${POSTGRES_DB:-wikforge}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./backend:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    restart: unless-stopped
+
   frontend:
     # 任务 18 完成前，frontend/Dockerfile 已存在但容器内为生产构建。
     # 开发模式下若需热更新，可临时改为 image: node:20-alpine + working_dir + 挂载 ./frontend。

@@ -27,6 +27,7 @@ settings = get_settings()
 TASK_MODULES = [
     "app.tasks.pipeline",
     "app.tasks.permission_tasks",
+    "app.tasks.watchdog",
 ]
 
 celery_app = Celery(
@@ -61,12 +62,23 @@ celery_app.conf.update(
     task_retry_backoff=True,
     task_retry_backoff_max=600,  # cap exponential backoff at 10 minutes
     task_retry_jitter=True,
-    # --- Time limits (matches design: per-step 60s timeout) ---
-    task_soft_time_limit=50,  # raises SoftTimeLimitExceeded for graceful cleanup
-    task_time_limit=60,  # hard kill after 60s
+    # --- Time limits ---
+    # 每个任务在 ``@_task_decorator`` 里有自己的 ``soft_time_limit`` /
+    # ``time_limit`` (parse/embed=600s, chunk/index/process=300s, profile_match=60s)。
+    # 全局值是 fallback,设置为最长任务的上限,避免长任务被全局限制 SIGKILL。
+    task_soft_time_limit=580,
+    task_time_limit=600,
     # --- Result backend ---
     result_expires=3600,  # results expire after 1 hour
     # --- Worker resource hygiene ---
     worker_max_tasks_per_child=100,
     worker_max_memory_per_child=512_000,  # 512MB
+    # --- Beat schedule (定时任务) ---
+    beat_schedule={
+        # 每 5 分钟扫一次卡住的文档,标记为 failed
+        "watchdog-reap-stuck-documents": {
+            "task": "watchdog.reap_stuck_documents",
+            "schedule": 300.0,  # 秒
+        },
+    },
 )
