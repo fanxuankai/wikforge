@@ -292,8 +292,7 @@ class SearchService:
                             "multi_match": {
                                 "query": query,
                                 "fields": ["content^2", "title_chain"],
-                                # 不指定 analyzer, 由索引 mapping 中的 search_analyzer 决定
-                                # (IK 已装时用 ik_smart, 否则降级 standard,与 ensure_index_exists 一致)
+                                "analyzer": "ik_smart",
                             }
                         }
                     ],

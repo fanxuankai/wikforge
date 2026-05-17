@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 同一分支并发推送时取消进行中的旧 job, 节省 minutes
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────
+  # Backend: lint + 单元测试 (跳过需要外部服务的集成测试)
+  # ─────────────────────────────────────────────────────────────────
+  backend:
+    name: Backend (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Lint (ruff)
+        working-directory: backend
+        run: ruff check app
+
+      - name: Type check (mypy, allow failures for now)
+        working-directory: backend
+        run: mypy app --ignore-missing-imports || true
+
+      - name: Run unit tests (skip integration)
+        working-directory: backend
+        env:
+          # 测试用占位配置, 真实部署时由 .env 覆盖
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5432"
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+          REDIS_HOST: localhost
+          REDIS_PORT: "6379"
+          OPENSEARCH_HOST: localhost
+          OPENSEARCH_PORT: "9200"
+          QDRANT_HOST: localhost
+          QDRANT_PORT: "6333"
+          MINIO_HOST: localhost
+          MINIO_PORT: "9000"
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+          JWT_SECRET_KEY: test-key-for-ci
+          INITIAL_ADMIN_EMAIL: admin@wikforge.com
+          INITIAL_ADMIN_PASSWORD: Test@123
+        run: |
+          pytest tests/ \
+            --ignore=tests/integration \
+            -q \
+            --tb=short \
+            -x \
+            --maxfail=10
+
+  # ─────────────────────────────────────────────────────────────────
+  # Frontend: lint + type check + build
+  # ─────────────────────────────────────────────────────────────────
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Type check
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Build (production)
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+        run: npm run build
+
+  # ─────────────────────────────────────────────────────────────────
+  # Compose 校验: 确保 docker-compose.yml 语法正确, 镜像可拉取
+  # ─────────────────────────────────────────────────────────────────
+  compose-validate:
+    name: Compose Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yml
+        run: |
+          # 用 .env.example 作为参数源, 确保所有变量都有默认值
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose config --services
+
+      - name: Validate docker-compose.test.yml
+        run: |
+          docker compose -f docker-compose.test.yml config --quiet

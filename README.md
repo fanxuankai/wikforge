@@ -8,6 +8,7 @@
   <a href="#-quick-start"><img src="https://img.shields.io/badge/部署-make_first--run-7C3AED?style=for-the-badge&logo=docker&logoColor=white" alt="Quick Start"/></a>
   <a href="docs/deploy.md"><img src="https://img.shields.io/badge/文档-deploy.md-4F46E5?style=for-the-badge&logo=readthedocs&logoColor=white" alt="Docs"/></a>
   <a href="#-roadmap"><img src="https://img.shields.io/badge/Roadmap-55_项-22C55E?style=for-the-badge&logo=todoist&logoColor=white" alt="Roadmap"/></a>
+  <a href="https://github.com/fanxuankai/wikforge/actions/workflows/ci.yml"><img src="https://github.com/fanxuankai/wikforge/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"/></a>
 </p>
 
 <p>

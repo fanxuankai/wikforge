@@ -325,8 +325,13 @@ class DocumentService:
         tag: str | None = None,
         page: int = 1,
         page_size: int = 20,
+        allowed_space_ids: list[uuid.UUID] | None = None,
     ) -> dict:
-        """List documents with filtering and pagination."""
+        """List documents with filtering and pagination.
+
+        当 ``allowed_space_ids`` 不为 ``None`` 时, 强制按集合过滤
+        (用于非 admin 的权限隔离); 为 ``None`` 表示不限制 (admin)。
+        """
         stmt = select(Document)
         count_stmt = select(func.count(Document.id))
 
@@ -334,6 +339,9 @@ class DocumentService:
         if space_id:
             stmt = stmt.where(Document.space_id == space_id)
             count_stmt = count_stmt.where(Document.space_id == space_id)
+        if allowed_space_ids is not None:
+            stmt = stmt.where(Document.space_id.in_(allowed_space_ids))
+            count_stmt = count_stmt.where(Document.space_id.in_(allowed_space_ids))
         if folder_id:
             stmt = stmt.where(Document.folder_id == folder_id)
             count_stmt = count_stmt.where(Document.folder_id == folder_id)

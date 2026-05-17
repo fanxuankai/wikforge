@@ -22,11 +22,33 @@ from fastapi import APIRouter, Depends, File, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, is_admin_user
 from app.core.database import get_db
+from app.models.permission import AccessLevel, Permission, ResourceType
 from app.models.user import User
 from app.services.document_service import DocumentService
 from app.services.upload_service import UploadService
+
+from sqlalchemy import select
+
+
+async def _get_user_allowed_space_ids(
+    user: User, db: AsyncSession
+) -> set[uuid.UUID]:
+    """返回用户具有 read/write 权限的空间 ID 集合。
+
+    Admin (邮箱与 INITIAL_ADMIN_EMAIL 匹配) 返回 None 表示「全部空间」,
+    调用方按 None 短路, 不做过滤。
+    """
+    if is_admin_user(user):
+        return None  # type: ignore[return-value]
+    stmt = select(Permission.resource_id).where(
+        Permission.user_id == user.id,
+        Permission.resource_type == ResourceType.space,
+        Permission.access_level.in_([AccessLevel.read, AccessLevel.write]),
+    )
+    result = await db.execute(stmt)
+    return {sid for sid in result.scalars().all()}
 
 router = APIRouter(tags=["documents"])
 
@@ -182,9 +204,13 @@ async def create_space(
 async def list_spaces(
     current_user: User = Depends(get_current_user),
     service: DocumentService = Depends(get_document_service),
+    db: AsyncSession = Depends(get_db),
 ):
-    """List all spaces."""
+    """List spaces the current user can access (admin: all)."""
+    allowed = await _get_user_allowed_space_ids(current_user, db)
     spaces = await service.list_spaces()
+    if allowed is not None:
+        spaces = [s for s in spaces if s.id in allowed]
     return [_space_to_response(s) for s in spaces]
 
 
@@ -242,8 +268,16 @@ async def list_folders(
     parent_id: uuid.UUID | None = Query(None),
     current_user: User = Depends(get_current_user),
     service: DocumentService = Depends(get_document_service),
+    db: AsyncSession = Depends(get_db),
 ):
-    """List folders in a space, optionally filtered by parent."""
+    """List folders in a space, optionally filtered by parent.
+
+    会校验用户对 space 是否有权限, 否则返回 403。
+    """
+    allowed = await _get_user_allowed_space_ids(current_user, db)
+    if allowed is not None and space_id not in allowed:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="无权访问该空间")
     folders = await service.list_folders(space_id=space_id, parent_id=parent_id)
     return [_folder_to_response(f) for f in folders]
 
@@ -316,14 +350,32 @@ async def list_documents(
     page_size: int = Query(20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     service: DocumentService = Depends(get_document_service),
+    db: AsyncSession = Depends(get_db),
 ):
-    """List documents with optional filtering and pagination."""
+    """List documents with optional filtering and pagination.
+
+    会强制按用户可访问空间过滤; admin 看全部。
+    """
+    allowed = await _get_user_allowed_space_ids(current_user, db)
+    if allowed is not None:
+        # 如果用户指定了 space_id 但没权限,直接返回空
+        if space_id is not None and space_id not in allowed:
+            return PaginatedDocumentsResponse(
+                items=[], total=0, page=page, page_size=page_size, pages=0
+            )
+        # 没权限访问任何空间 -> 空列表
+        if not allowed:
+            return PaginatedDocumentsResponse(
+                items=[], total=0, page=page, page_size=page_size, pages=0
+            )
+
     result = await service.list_documents(
         space_id=space_id,
         folder_id=folder_id,
         tag=tag,
         page=page,
         page_size=page_size,
+        allowed_space_ids=list(allowed) if allowed is not None else None,
     )
     return PaginatedDocumentsResponse(
         items=[_document_to_response(d) for d in result["items"]],

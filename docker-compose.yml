@@ -37,7 +37,10 @@ services:
     restart: unless-stopped
 
   opensearch:
-    image: opensearchproject/opensearch:2.17.1
+    build:
+      context: ./opensearch
+      dockerfile: Dockerfile
+    image: wikforge-opensearch:2.17.1-ik
     container_name: wikforge-opensearch
     environment:
       - discovery.type=single-node
