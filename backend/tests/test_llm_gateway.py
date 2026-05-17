@@ -35,6 +35,15 @@ import pytest
 from app.services.llm_gateway import LLMGateway, LLMGatewayError, LLMResponse
 
 
+def _expected_model(model_id: str) -> str:
+    """LLMGateway 会给不带 provider 前缀的 model 自动加 ``openai/``。
+
+    所有测试的 ``kwargs["model"]`` 期望值通过这个 helper 计算,
+    避免 patch 断言里硬编码不带前缀的字符串。
+    """
+    return model_id if "/" in model_id else f"openai/{model_id}"
+
+
 # ─── litellm stub ─────────────────────────────────────────────────────
 
 
@@ -182,7 +191,7 @@ class TestLLMGatewayComplete:
         litellm_stub.acompletion.assert_awaited_once()
         kwargs = litellm_stub.acompletion.await_args.kwargs
 
-        assert kwargs["model"] == "gpt-4o"
+        assert kwargs["model"] == _expected_model("gpt-4o")
         assert kwargs["temperature"] == 0.2
         assert kwargs["max_tokens"] == 512
         assert kwargs["timeout"] == 60.0
@@ -284,7 +293,7 @@ class TestLLMGatewayProviderRouting:
         response = await gw.complete(prompt="ping")
 
         kwargs = litellm_stub.acompletion.await_args.kwargs
-        assert kwargs["model"] == model_id
+        assert kwargs["model"] == _expected_model(model_id)
         assert response.model == model_id
 
     @pytest.mark.asyncio
@@ -320,10 +329,10 @@ class TestLLMGatewayProviderRouting:
         first_call = litellm_stub.acompletion.await_args_list[0].kwargs
         second_call = litellm_stub.acompletion.await_args_list[1].kwargs
 
-        assert first_call["model"] == "gpt-4o"
+        assert first_call["model"] == _expected_model("gpt-4o")
         assert "api_base" not in first_call
 
-        assert second_call["model"] == "qwen-max"
+        assert second_call["model"] == _expected_model("qwen-max")
         assert second_call["api_base"] == (
             "https://dashscope.aliyuncs.com/compatible-mode/v1"
         )
@@ -386,7 +395,7 @@ class TestLLMGatewayMultimodal:
             model="qwen-vl-max",
         )
 
-        assert litellm_stub.acompletion.await_args.kwargs["model"] == "qwen-vl-max"
+        assert litellm_stub.acompletion.await_args.kwargs["model"] == _expected_model("qwen-vl-max")
         # 网关默认仍为 gpt-4o
         assert gateway.model == "gpt-4o"
 
@@ -411,7 +420,7 @@ class TestLLMGatewayStream:
         assert tokens == ["Hello", ", ", "world", "!"]
         kwargs = litellm_stub.acompletion.await_args.kwargs
         assert kwargs["stream"] is True
-        assert kwargs["model"] == "gpt-4o"
+        assert kwargs["model"] == _expected_model("gpt-4o")
 
 
 # ─── 错误映射 ─────────────────────────────────────────────────────────

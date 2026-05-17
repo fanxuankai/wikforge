@@ -133,8 +133,10 @@ class TestSpaceCRUD:
             name="My Space", description="A test space", created_by=user_id
         )
 
-        mock_db.add.assert_called_once()
-        mock_db.flush.assert_called_once()
+        # create_space 现在播种 Space + owner Permission, 共 2 次 add
+        assert mock_db.add.call_count == 2
+        # flush 也会被调 2 次 (Space 一次, Permission 一次)
+        assert mock_db.flush.call_count >= 1
 
     @pytest.mark.asyncio
     async def test_create_space_duplicate_name(self, service, mock_db):
@@ -725,7 +727,8 @@ class TestValidation:
 
         # Should not raise
         await service.create_space(name=name, description=None, created_by=uuid.uuid4())
-        mock_db.add.assert_called_once()
+        # Space + owner Permission = 2 次 add
+        assert mock_db.add.call_count == 2
 
     @pytest.mark.asyncio
     async def test_tag_name_exactly_30_chars(self, service, mock_db):

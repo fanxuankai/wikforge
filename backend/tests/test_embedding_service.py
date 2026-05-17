@@ -210,12 +210,16 @@ class TestDenseEmbeddingBatching:
 
     @pytest.mark.asyncio
     async def test_passes_correct_model_to_litellm(self, litellm_stub):
-        """LiteLLM 调用必须使用配置的 model 参数。"""
+        """LiteLLM 调用必须使用配置的 model 参数。
+
+        EmbeddingService 会给不带 provider 前缀的 model 自动加 ``openai/``,
+        以便走 LiteLLM 的 OpenAI 兼容协议路由 (适配 LiteLLM Proxy / 阿里 / OpenAI)。
+        """
         litellm_stub.aembedding.return_value = _make_response([[0.0] * 1024])
         service = EmbeddingService(model="bge-large-zh", batch_size=4)
         await service.embed_chunks([{"id": "c", "text": "hi"}])
         kwargs = litellm_stub.aembedding.call_args.kwargs
-        assert kwargs["model"] == "bge-large-zh"
+        assert kwargs["model"] == "openai/bge-large-zh"
         assert kwargs["input"] == ["hi"]
 
     @pytest.mark.asyncio
