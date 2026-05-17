@@ -1,110 +1,307 @@
-# Wikforge
+<div align="center">
 
-企业级知识库系统。基于 RAG 架构的文档管理 / 智能搜索 / AI 问答平台。
+<img src="docs/assets/banner.svg" alt="Wikforge" width="100%"/>
 
-## 技术栈
+<br/>
 
-**后端**
-- Python 3.11 + FastAPI + SQLAlchemy 2.0 (async)
-- Celery (文档处理流水线)
-- Alembic (数据库迁移)
+<p>
+  <a href="#-quick-start"><img src="https://img.shields.io/badge/部署-make_first--run-7C3AED?style=for-the-badge&logo=docker&logoColor=white" alt="Quick Start"/></a>
+  <a href="docs/deploy.md"><img src="https://img.shields.io/badge/文档-deploy.md-4F46E5?style=for-the-badge&logo=readthedocs&logoColor=white" alt="Docs"/></a>
+  <a href="#-roadmap"><img src="https://img.shields.io/badge/Roadmap-55_项-22C55E?style=for-the-badge&logo=todoist&logoColor=white" alt="Roadmap"/></a>
+</p>
 
-**前端**
-- Next.js 14 (App Router) + Tailwind + shadcn/ui
-- Zustand (状态管理) + Playwright (E2E)
+<p>
+  <img src="https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white" alt="Python 3.11"/>
+  <img src="https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white" alt="FastAPI"/>
+  <img src="https://img.shields.io/badge/Celery-5.4-37814A?logo=celery&logoColor=white" alt="Celery"/>
+  <img src="https://img.shields.io/badge/Next.js-14-000000?logo=nextdotjs&logoColor=white" alt="Next.js 14"/>
+  <img src="https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white" alt="TypeScript"/>
+  <img src="https://img.shields.io/badge/Tailwind-3.4-06B6D4?logo=tailwindcss&logoColor=white" alt="Tailwind"/>
+</p>
 
-**基础设施**
-- PostgreSQL 16 (元数据)
-- Redis 7 (缓存 / Celery broker)
-- OpenSearch 2.17 (BM25 全文检索)
-- Qdrant 1.14 (向量检索, Dense + Sparse)
-- MinIO (S3 兼容对象存储)
-- LiteLLM Proxy (统一 LLM 网关)
+<p>
+  <img src="https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL"/>
+  <img src="https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white" alt="Redis"/>
+  <img src="https://img.shields.io/badge/OpenSearch-2.17-005EB8?logo=opensearch&logoColor=white" alt="OpenSearch"/>
+  <img src="https://img.shields.io/badge/Qdrant-1.14-DC382D?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI0RDMzgyRCIgZD0iTTEyIDJsOSA1djEwbC05IDUtOS01VjdsOS01eiIvPjwvc3ZnPg==&logoColor=white" alt="Qdrant"/>
+  <img src="https://img.shields.io/badge/MinIO-S3-C72E49?logo=minio&logoColor=white" alt="MinIO"/>
+  <img src="https://img.shields.io/badge/LiteLLM-Proxy-8B5CF6" alt="LiteLLM"/>
+</p>
 
-## 核心能力
+<p>
+  <strong>企业级 RAG 知识库 · 文档解析 · 智能检索 · 流式问答 · 反馈闭环</strong>
+</p>
 
-- 文档解析: PDF / DOCX / Markdown / HTML / 源代码 + LLM 兜底解析 (扫描版 PDF)
-- Profile 系统: 自动匹配文档类型 (通用文本 / 中式技术规范 / 扫描版 PDF)
-- 复合搜索: BM25 + Dense Vector + Sparse Vector + RRF 融合 + Cross-Encoder 重排
-- 查询增强: Rewriting / HyDE / Sub-query Decomposition
-- RAG 问答: 流式 SSE 输出 + 引用标注 + 会话记忆
-- 反馈闭环: 用户反馈 → 聚合分析 → 优化建议 → 一键应用 → 重处理
-- 领域词典: 同义词 + 术语标准化 + 候选词审核
-- 完整后台: 空间 / 用户 / 权限 / Profile / 词典 / 审核 / LLM / 监控
+</div>
 
-## 快速启动
+<br/>
 
-```bash
-# 1. 复制配置, 按需填写凭证
-cp .env.example .env
-make secrets       # 生成强随机密钥, 复制到 .env
-vim .env           # 至少填: CPA_API_KEY / DASHSCOPE_API_KEY
+## ✨ 核心能力
 
-# 2. 一键拉起
-make first-run
-
-# 3. 访问
-# http://localhost          前端
-# http://localhost:8000/docs API 文档
-# http://localhost:4000/ui   LiteLLM Admin
+```
+📄 文档解析           插件式架构: PDF / DOCX / Markdown / HTML / 源代码 + LLM 视觉兜底
+🔍 复合搜索           BM25 + Dense Vector + Sparse Vector + RRF 融合 + Cross-Encoder 重排
+🎯 Profile 系统       自动匹配文档类型 (通用文本 / 中式技术规范 / 扫描版 PDF)
+💡 查询增强           LLM 改写 / HyDE 假设文档 / 多子查询分解, 三档独立开关
+🤖 流式 RAG           SSE 输出 + 引用标注 + 会话记忆, 首 token < 5s
+🔁 反馈闭环           错误模式聚合 → 优化建议 → 一键应用 → 批量重处理
+📚 领域词典           术语标准化 + 同义词扩展 + 候选词审核
+🔐 权限隔离           Pre-Filtering 在向量层与全文层同时生效, 50ms 内完成判定
+🛡️ 审核队列           解析质量评分 + 人工修正 + Profile 反向优化
+📊 后台管理           空间 / 用户 / 权限 / Profile / 词典 / 反馈 / 监控 / LLM 网关
 ```
 
-详细部署 / 升级 / 备份 / 排错见 [`docs/deploy.md`](docs/deploy.md)。
-
-## 常用命令
+## 🚀 Quick Start
 
 ```bash
-make help            # 查看全部命令
+# 1. 配置环境变量
+cp .env.example .env
+make secrets         # 生成强随机密钥, 拷贝到 .env
+vim .env             # 至少填: CPA_API_KEY (Chat) / DASHSCOPE_API_KEY (Embedding)
+
+# 2. 一键拉起 9 个服务
+make first-run
+
+# 3. 验证 (走一遍 登录→上传→搜索→RAG)
+./scripts/smoke-test.sh
+
+# 4. 访问
+open http://localhost                # 前端 (admin@wikforge.com / Admin@123)
+open http://localhost:8000/docs      # API 文档 (Swagger)
+open http://localhost:4000/ui        # LiteLLM Admin
+open http://localhost:9001           # MinIO Console
+open http://localhost:6333/dashboard # Qdrant Dashboard
+```
+
+完整部署 / 升级 / 备份 / 排错请看 [`docs/deploy.md`](docs/deploy.md)。
+
+## 🏗️ 架构
+
+```mermaid
+flowchart LR
+    User([👤 用户])
+    Browser[🌐 浏览器]
+
+    subgraph Wikforge["🚀 Wikforge"]
+        FE[Next.js 14<br/>前端]
+        API[FastAPI<br/>API Server]
+        Worker[Celery<br/>Worker × 4]
+        LiteLLM[LiteLLM Proxy<br/>多模型网关]
+    end
+
+    subgraph Storage["💾 存储层"]
+        PG[(PostgreSQL<br/>元数据)]
+        Redis[(Redis<br/>缓存/Broker)]
+        OS[(OpenSearch<br/>BM25)]
+        QD[(Qdrant<br/>向量)]
+        MinIO[(MinIO<br/>对象存储)]
+    end
+
+    subgraph Upstream["☁️ 上游模型"]
+        CPA[CPA 网关<br/>gpt-5.5 / claude / qwen]
+        DS[阿里百炼<br/>text-embedding-v4]
+    end
+
+    User --> Browser
+    Browser <--> FE
+    FE <--> API
+    API <--> PG & Redis & OS & QD & MinIO & LiteLLM
+    API -.触发任务.-> Worker
+    Worker <--> PG & Redis & OS & QD & MinIO & LiteLLM
+    LiteLLM --> CPA & DS
+
+    classDef fe fill:#3B82F6,stroke:#1E40AF,color:#fff
+    classDef api fill:#10B981,stroke:#047857,color:#fff
+    classDef worker fill:#F59E0B,stroke:#B45309,color:#fff
+    classDef llm fill:#8B5CF6,stroke:#5B21B6,color:#fff
+    classDef store fill:#1F2937,stroke:#111827,color:#fff
+    classDef upstream fill:#EC4899,stroke:#9D174D,color:#fff
+
+    class FE fe
+    class API api
+    class Worker worker
+    class LiteLLM llm
+    class PG,Redis,OS,QD,MinIO store
+    class CPA,DS upstream
+```
+
+## 📥 文档处理管线
+
+```mermaid
+flowchart LR
+    Upload[📤 上传<br/>API] --> Parse[🔍 parse_document<br/>原生解析]
+    Parse --> Profile[🎯 profile_match<br/>规则匹配]
+    Profile --> Universal[🤖 universal_parser_check<br/>LLM 兜底]
+    Universal --> Process[⚙️ process_document<br/>清洗+评分]
+    Process -- 质量低 --> Review[👁️ 审核队列]
+    Process --> Chunk[✂️ chunk_document<br/>分块]
+    Chunk --> Embed[🧮 embed_chunks<br/>向量化]
+    Embed --> Index[📦 index_chunks<br/>双索引入库]
+    Index --> Done([✅ completed])
+
+    Review -. 人工修正 .-> Process
+
+    classDef ok fill:#22C55E,stroke:#15803D,color:#fff
+    classDef llm fill:#8B5CF6,stroke:#5B21B6,color:#fff
+    classDef warn fill:#F97316,stroke:#9A3412,color:#fff
+
+    class Done ok
+    class Universal,Embed llm
+    class Review warn
+```
+
+## 🔍 检索与问答管线
+
+```mermaid
+flowchart TB
+    Q[用户查询] --> Enh{查询增强}
+    Enh -->|改写| R1[改写×N]
+    Enh -->|HyDE| R2[假设文档]
+    Enh -->|分解| R3[子查询×N]
+
+    R1 & R2 & R3 --> Multi{多路召回}
+    Multi -->|BM25| OS[(OpenSearch)]
+    Multi -->|Dense| QD1[(Qdrant Dense)]
+    Multi -->|Sparse| QD2[(Qdrant Sparse)]
+
+    OS & QD1 & QD2 --> RRF[🔀 RRF Fusion<br/>k=60]
+    RRF --> Rerank[🎯 Cross-Encoder<br/>BGE-Reranker]
+    Rerank --> Filter[阈值过滤]
+    Filter -->|有结果| LLM[💬 LLM 合成<br/>+ 引用标注]
+    Filter -->|无结果| Fallback[📭 兜底回复]
+    LLM --> Stream[📡 SSE 流式输出]
+
+    classDef enh fill:#A855F7,stroke:#6B21A8,color:#fff
+    classDef rec fill:#3B82F6,stroke:#1E40AF,color:#fff
+    classDef llm fill:#8B5CF6,stroke:#5B21B6,color:#fff
+
+    class Enh,R1,R2,R3 enh
+    class Multi,RRF,Rerank rec
+    class LLM,Stream llm
+```
+
+## 📦 技术栈
+
+| 层 | 组件 | 版本 | 职责 |
+|---|---|---|---|
+| **API** | FastAPI | 0.115+ | 异步 HTTP / OpenAPI 文档 |
+| **ORM** | SQLAlchemy | 2.0 (async) | 类型安全的 DB 访问 |
+| **Worker** | Celery | 5.4 | 文档处理流水线 |
+| **迁移** | Alembic | 1.13+ | 数据库版本管理 |
+| **前端** | Next.js | 14 (App Router) | React Server Components |
+| **样式** | Tailwind + shadcn/ui | 3.4 | 设计系统 |
+| **状态** | Zustand | 5 | 轻量状态管理 |
+| **数据库** | PostgreSQL | 16 | 主数据 + JSONB 配置 |
+| **缓存** | Redis | 7 | Celery broker / 进度 / 会话 |
+| **全文** | OpenSearch | 2.17 | BM25 + 中文分词 (IK 可选) |
+| **向量** | Qdrant | 1.14 | Dense (1024d) + Sparse (TF-IDF) |
+| **存储** | MinIO | 2025 | S3 兼容对象存储 |
+| **LLM** | LiteLLM Proxy | latest | 100+ provider 统一网关 |
+
+## 🧰 常用命令
+
+```bash
+make help            # 查看全部命令 (14 个)
 make ps              # 服务状态
-make logs            # 跟踪日志
+make logs            # 跟踪所有日志
 make logs-api        # 只看 api
+make logs-worker     # 只看 worker
 make psql            # 进 PostgreSQL CLI
-make verify          # 完整健康检查
-make down            # 停止 (保留数据)
+make shell-api       # 进 api 容器 bash
+make migrate         # 手动跑 alembic upgrade head
+make seed            # 手动 init_db (admin + 默认 Profile)
+make verify          # 跑 verify_compose 完整健康检查
+make secrets         # 生成一组强随机密钥
+make first-run       # 新机器: 启动 + 等待 healthy + 提示访问
+make down            # 停止 (保留 volume)
 make reset           # 完全清理 (会丢数据!)
 ```
 
-## 冒烟测试
-
-```bash
-./scripts/smoke-test.sh
-```
-
-走一遍: 登录 → 创建空间 → 上传文档 → 等处理 → 搜索 → RAG 问答。
-
-## 目录结构
+## 🗂️ 目录结构
 
 ```
 wikforge/
-├── backend/                  Python / FastAPI
+├── backend/              # Python / FastAPI
 │   ├── app/
-│   │   ├── api/              路由层
-│   │   ├── services/         业务逻辑
-│   │   ├── tasks/            Celery 任务
-│   │   ├── models/           SQLAlchemy ORM
-│   │   ├── core/             基础设施 (db / redis / qdrant / opensearch / minio)
-│   │   └── scripts/          init_db / api-entrypoint
-│   ├── alembic/              数据库迁移
-│   ├── tests/                单元 + 集成测试
-│   └── eval/                 检索质量评估
-├── frontend/                 Next.js 14
-│   ├── src/app/              App Router 页面
-│   ├── src/components/       UI 组件
-│   ├── src/lib/              api-client / utils
-│   └── src/stores/           Zustand stores
-├── litellm/                  LiteLLM Proxy 配置
-├── scripts/                  运维脚本
-├── docs/                     文档
-└── docker-compose.yml        9 服务编排
+│   │   ├── api/          # 路由层 (auth/documents/search/qa/admin_*)
+│   │   ├── services/     # 业务逻辑
+│   │   ├── tasks/        # Celery 任务 (pipeline.py 是核心)
+│   │   ├── models/       # SQLAlchemy ORM
+│   │   ├── core/         # 基础设施 (db/redis/qdrant/opensearch/minio)
+│   │   └── scripts/      # init_db / api-entrypoint
+│   ├── alembic/          # 数据库迁移
+│   ├── tests/            # 单元 + 集成测试 (1981 个)
+│   └── eval/             # 检索质量评估 (Recall@K / MRR / NDCG)
+├── frontend/             # Next.js 14
+│   ├── src/app/          # App Router 页面
+│   ├── src/components/   # UI 组件
+│   ├── src/lib/          # api-client / utils
+│   └── src/stores/       # Zustand stores
+├── litellm/config.yaml   # LiteLLM Proxy 模型路由配置
+├── scripts/              # verify_compose / smoke-test / postgres-init
+├── docs/                 # 部署文档 / 架构图 / 资源
+└── docker-compose.yml    # 9 服务编排
 ```
 
-## 开发规范
+## 🛣️ Roadmap
 
-- Python 代码: ruff format + mypy
-- TypeScript: 默认 Next.js + ESLint
-- 提交前运行 `./scripts/smoke-test.sh` 确保无回归
-- 数据库改动必须走 Alembic 迁移, 禁止 `Base.metadata.create_all`
+> 总计 55 项, 详情参见 [`docs/ROADMAP.md`](docs/ROADMAP.md)。
 
-## License
+### 近期 (P1)
 
-私有项目, 未授权不得外发。
+- [ ] **A1** `list_spaces` / `list_documents` 加权限过滤
+- [ ] **B1** OpenSearch 装 IK 中文分词器 (中文召回 +30~50%)
+- [ ] **B2** 真 Cross-Encoder reranker (BAAI/bge-reranker-base)
+- [ ] **B4-B5** Profile 自动匹配 / LLM 兜底实测
+
+### 中期 (P2)
+
+- [ ] **A4** Embedding 走 LiteLLM Proxy 统一管控
+- [ ] **A5** LiteLLM Redis 缓存验证
+- [ ] **A6** UploadService commit 边界重构
+- [ ] **C1** 文档下载用 presigned URL
+- [ ] **C2** 大文件 multipart 上传
+- [ ] **C6** 升级到 query_points API, 解锁 qdrant-client 1.15+
+
+### 远期 (P3)
+
+- [ ] **D2-D3** 备份 cron + nginx 反代 (TLS / SSE)
+- [ ] **E1-E12** 用户体验扩展 (改密 / 版本管理 / 审计 / 批量操作 / i18n / 移动端)
+- [ ] **F1-F7** 性能 / HA (gunicorn / Redis Sentinel / Qdrant HNSW 调优)
+- [ ] **G1-G5** CI/CD 集成测试 / 检索质量自动评估
+
+## 📚 文档
+
+| 文档 | 说明 |
+|---|---|
+| [`docs/deploy.md`](docs/deploy.md) | 部署 / 升级 / 备份 / 排错完整手册 |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | 55 项修复 / 优化清单 |
+| [`backend/tests/integration/README.md`](backend/tests/integration/README.md) | 集成测试运行说明 |
+| [`frontend/e2e/README.md`](frontend/e2e/README.md) | Playwright E2E 说明 |
+| [`scripts/README.md`](scripts/README.md) | 运维脚本说明 |
+
+## 🔐 安全
+
+私有仓库, 内网部署。
+
+- ✅ `.env` 在 `.gitignore` 第 1 行, 凭证不入库
+- ✅ JWT 签发 / 轮换 / 失败次数锁定
+- ✅ Permission Pre-Filtering 在向量库 + 全文库 + Cache 三层一致
+- ✅ Profile / 解析失败队列 + 重试上限 + 审核闭环
+- ⚠️ 默认 admin 密码 `Admin@123`, **首次登录立即修改**
+- ⚠️ Master Key / Secret Key 占位符为 `change-me-*`, 部署前必须替换
+- ❌ 当前无 HTTPS 终止, 部署到公网前请加反向代理
+
+## 📜 License
+
+私有项目, All rights reserved by Jolc.
+
+---
+
+<div align="center">
+
+由 ❤️ 与 ☕ 在 macOS 上锻造
+
+<sub>Wiki + Forge — 锻造企业知识库</sub>
+
+</div>
