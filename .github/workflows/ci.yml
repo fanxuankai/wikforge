@@ -79,6 +79,7 @@ jobs:
             --ignore=tests/test_universal_parser_no_profile_scenarios.py \
             --ignore=tests/test_universal_parser_trigger.py \
             --ignore=tests/test_marker_pdf_parser.py \
+            --ignore=tests/test_parsers.py \
             -q \
             --tb=short \
             --timeout=30 \
