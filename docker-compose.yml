@@ -24,16 +24,27 @@ services:
   redis:
     image: redis:7-alpine
     container_name: wikforge-redis
+    # AOF 持久化: every-second 同步, 重启不丢任务队列 / 会话状态
+    # 内网部署默认无密码 (容器网络已隔离); 公网部署务必通过 .env 设置 REDIS_PASSWORD
+    # 并同步更新 litellm/config.yaml 的 cache_params (LiteLLM 走单独连接)
     command: >
       redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --auto-aof-rewrite-percentage 100
+      --auto-aof-rewrite-min-size 64mb
       ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
     ports:
       - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli ${REDIS_PASSWORD:+-a $$REDIS_PASSWORD --no-auth-warning} ping | grep -q PONG"]
       interval: 30s
       timeout: 60s
       retries: 3
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     restart: unless-stopped
 
   opensearch:
@@ -281,6 +292,28 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Flower: Celery 任务监控 Web UI
+  # 浏览器访问 http://localhost:${FLOWER_PORT:-5555}, 看实时队列 / 任务历史 / worker 状态
+  flower:
+    image: mher/flower:2.0
+    container_name: wikforge-flower
+    command:
+      - celery
+      - --broker=redis://${REDIS_PASSWORD:+:${REDIS_PASSWORD}@}redis:6379/0
+      - flower
+      - --port=5555
+      - --persistent=True
+      - --db=/data/flower.db
+      - --basic-auth=${FLOWER_USERNAME:-admin}:${FLOWER_PASSWORD:-admin}
+    ports:
+      - "${FLOWER_PORT:-5555}:5555"
+    volumes:
+      - flower_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   frontend:
     # 任务 18 完成前，frontend/Dockerfile 已存在但容器内为生产构建。
     # 开发模式下若需热更新，可临时改为 image: node:20-alpine + working_dir + 挂载 ./frontend。
@@ -307,3 +340,5 @@ volumes:
   opensearch_data:
   qdrant_data:
   minio_data:
+  redis_data:
+  flower_data:
