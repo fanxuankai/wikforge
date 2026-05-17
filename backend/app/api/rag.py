@@ -8,6 +8,7 @@ Provides:
 
 import json
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -71,12 +72,14 @@ class ChatRequest(BaseModel):
 
 
 class SessionInfo(BaseModel):
-    """Session information response."""
+    """Session information response.
 
-    session_id: str
-    user_id: str
-    last_active: float
-    is_expired: bool
+    字段命名与前端 ChatSession 对齐 (id / last_active_at / preview)。
+    """
+
+    id: str
+    last_active_at: str  # ISO 8601 字符串, 前端 new Date() 直接可解析
+    preview: str = ""    # 首条用户问题的截断, 用于会话列表显示
 
 
 class SessionListResponse(BaseModel):
@@ -112,7 +115,17 @@ async def get_user_allowed_space_ids(
     user: User,
     db: AsyncSession,
 ) -> list[str]:
-    """Get list of space IDs the user has read or write access to."""
+    """Get list of space IDs the user has read or write access to.
+
+    Admin (邮箱与 INITIAL_ADMIN_EMAIL 匹配) 拥有全部空间访问权。
+    """
+    from app.api.auth import is_admin_user
+    from app.models.space import Space
+
+    if is_admin_user(user):
+        result = await db.execute(select(Space.id))
+        return [str(sid) for sid in result.scalars().all()]
+
     stmt = select(Permission.resource_id).where(
         Permission.user_id == user.id,
         Permission.resource_type == ResourceType.space,
@@ -242,23 +255,64 @@ async def list_sessions(
     """
     try:
         sessions = await rag_engine.get_user_sessions(str(current_user.id))
-        return SessionListResponse(
-            sessions=[
-                SessionInfo(
-                    session_id=s["session_id"],
-                    user_id=s["user_id"],
-                    last_active=s["last_active"],
-                    is_expired=s["is_expired"],
-                )
-                for s in sessions
-            ]
-        )
+
+        items: list[SessionInfo] = []
+        for s in sessions:
+            session_id = s["session_id"]
+            # last_active 是 unix timestamp, 转 ISO 8601 字符串给前端
+            ts = float(s.get("last_active", 0) or 0)
+            iso_time = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+            # 取首条 user 消息当 preview
+            try:
+                msgs = await rag_engine.get_session_history(session_id)
+                preview = ""
+                for m in msgs:
+                    if m.get("role") == "user":
+                        preview = (m.get("content") or "")[:60]
+                        break
+            except Exception:
+                preview = ""
+
+            items.append(
+                SessionInfo(id=session_id, last_active_at=iso_time, preview=preview)
+            )
+
+        # 按 last_active 倒序
+        items.sort(key=lambda x: x.last_active_at, reverse=True)
+        return SessionListResponse(sessions=items)
     except Exception as e:
         logger.error(f"Failed to list sessions: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail="获取会话列表失败",
         )
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+async def delete_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    rag_engine: RAGEngine = Depends(get_rag_engine),
+):
+    """删除一个会话 (Redis 中清空)。
+
+    只有会话所有者能删除。404 表示会话不存在或已过期。
+    """
+    try:
+        session = await rag_engine.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        if session.get("user_id") != str(current_user.id):
+            raise HTTPException(status_code=403, detail="无权删除该会话")
+
+        await rag_engine.delete_session(session_id)
+        return None
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete session: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="删除会话失败")
 
 
 @router.get("/sessions/{session_id}/history", response_model=SessionHistoryResponse)

@@ -586,3 +586,17 @@ class RAGEngine:
             List of message dicts
         """
         return await self._get_conversation_history(session_id)
+
+    async def delete_session(self, session_id: str) -> bool:
+        """删除一个会话 (Redis hash key 整体清空)。
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            True 表示有删除发生, False 表示 key 不存在
+        """
+        redis = await self._get_redis()
+        key = await self._get_session_key(session_id)
+        deleted = await redis.delete(key)
+        return bool(deleted)

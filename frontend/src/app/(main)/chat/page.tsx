@@ -61,6 +61,20 @@ export default function ChatPage() {
     reset();
   };
 
+  const handleDeleteSession = async (sessionId: string) => {
+    try {
+      await apiClient.delete(`/api/rag/sessions/${sessionId}`);
+      // 从列表中剔除已删除的会话
+      setSessions(sessions.filter((s) => s.id !== sessionId));
+      // 如果当前正在查看的就是它,清空 chat 区域
+      if (currentSessionId === sessionId) {
+        reset();
+      }
+    } catch (err) {
+      console.error("删除会话失败", err);
+    }
+  };
+
   return (
     <div className="flex h-[calc(100vh-theme(spacing.16))] -m-6">
       {/* Session sidebar */}
@@ -70,6 +84,7 @@ export default function ChatPage() {
         isLoading={isLoadingSessions}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
+        onDeleteSession={handleDeleteSession}
       />
 
       {/* Chat area */}
