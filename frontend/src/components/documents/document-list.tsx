@@ -121,6 +121,18 @@ export function DocumentList({
     fetchDocuments();
   }, [fetchDocuments, refreshTrigger]);
 
+  // 点击下拉菜单以外的位置自动收起 (用 capture 阶段确保在 button onClick 之后触发)
+  useEffect(() => {
+    if (!activeMenu) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && target.closest("[data-row-actions]")) return;
+      setActiveMenu(null);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [activeMenu]);
+
   // Poll every 5 seconds if any document is in processing state
   useEffect(() => {
     const hasProcessing = documents.some((d) =>
@@ -244,7 +256,7 @@ export function DocumentList({
                     {formatDate(doc.updated_at)}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <div className="relative inline-block">
+                    <div className="relative inline-block" data-row-actions>
                       <Button
                         variant="ghost"
                         size="icon"
