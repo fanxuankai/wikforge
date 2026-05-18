@@ -6,15 +6,18 @@
 - Sparse 向量检索（Qdrant，Pre-Filtering）
 - 权限 Filter 构建（Qdrant / OpenSearch）
 - RRF 融合算法（k=60）
-- Cross-Encoder 精排（BGE-Reranker）
+- Cross-Encoder 精排（DashScope gte-rerank-v2 优先,本地 BGE-Reranker fallback）
 - 检索超时降级（单路 3 秒超时，跳过未返回路）
 - 搜索结果格式化（相关性分数 0-1、来源信息、高亮片段 ≤200 字符）
 """
 
 import asyncio
 import logging
+import os
 import re
 from dataclasses import dataclass
+
+import httpx
 
 from app.services.embedding_service import EmbeddingService
 
@@ -28,6 +31,100 @@ RRF_CANDIDATE_LIMIT = 100
 RERANK_TOP_N = 20
 DEFAULT_PAGE_SIZE = 10
 MAX_PAGE_SIZE = 50
+
+
+# ─── DashScope (云上) Rerank 配置 ──────────────────────────────────────
+#
+# 优先级: DashScope rerank → 本地 BGE Cross-Encoder → bigram fallback
+# 中文场景 gte-rerank-v2 实测优于 bge-reranker-base, 且不占本地内存。
+# 关掉:在 .env 设 RERANK_PROVIDER=local 或 RERANK_PROVIDER=disabled
+# 注意:DashScope rerank 用独立 API 端点 (services/rerank/text-rerank/text-rerank),
+#       不是 OpenAI 兼容协议, 所以不走 LiteLLM 而是直连。
+
+RERANK_PROVIDER = os.environ.get("RERANK_PROVIDER", "dashscope").strip().lower()
+DASHSCOPE_RERANK_MODEL = os.environ.get(
+    "DASHSCOPE_RERANK_MODEL", "gte-rerank-v2"
+)
+DASHSCOPE_RERANK_URL = os.environ.get(
+    "DASHSCOPE_RERANK_URL",
+    "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank",
+)
+DASHSCOPE_RERANK_TIMEOUT = float(
+    os.environ.get("DASHSCOPE_RERANK_TIMEOUT", "5.0")
+)
+# DashScope rerank 单次接受的候选 doc 上限 (官方文档: 不超过 500)
+# 我们先在客户端截断到 100, 后端的 RRF_CANDIDATE_LIMIT 也是 100。
+DASHSCOPE_RERANK_MAX_DOCS = 100
+
+
+async def _dashscope_rerank_scores(
+    query: str, documents: list[str]
+) -> list[float] | None:
+    """调 DashScope rerank API 拿候选 doc 的相关性分数。
+
+    返回 ``None`` 表示调用失败,调用方应回退到本地 cross-encoder。
+    成功时返回与 ``documents`` 等长的 float list (分数已归一到 [0, 1])。
+    """
+    api_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
+    if not api_key:
+        logger.warning("DashScope rerank skipped: DASHSCOPE_API_KEY not set")
+        return None
+    if not documents:
+        return []
+
+    payload = {
+        "model": DASHSCOPE_RERANK_MODEL,
+        "input": {
+            "query": query,
+            "documents": documents[:DASHSCOPE_RERANK_MAX_DOCS],
+        },
+        "parameters": {
+            "return_documents": False,
+            "top_n": len(documents[:DASHSCOPE_RERANK_MAX_DOCS]),
+        },
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=DASHSCOPE_RERANK_TIMEOUT) as client:
+            resp = await client.post(
+                DASHSCOPE_RERANK_URL, json=payload, headers=headers
+            )
+            resp.raise_for_status()
+            body = resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("DashScope rerank failed: %s", exc)
+        return None
+
+    # 返回结构: {"output": {"results": [{"index": 0, "relevance_score": 0.93}, ...]}}
+    results = (body.get("output") or {}).get("results") or []
+    if not results:
+        return None
+
+    n = len(documents[:DASHSCOPE_RERANK_MAX_DOCS])
+    scores: list[float] = [0.0] * n
+    for item in results:
+        idx = item.get("index")
+        score = item.get("relevance_score") or item.get("score")
+        if idx is None or score is None:
+            continue
+        if 0 <= idx < n:
+            scores[idx] = float(score)
+
+    # 候选超过 100 的 (理论上不会触发, RRF_CANDIDATE_LIMIT=100), 补 0
+    if len(documents) > n:
+        scores.extend([0.0] * (len(documents) - n))
+
+    logger.info(
+        "DashScope rerank ok: model=%s, docs=%d, top_score=%.3f",
+        DASHSCOPE_RERANK_MODEL,
+        len(documents),
+        max(scores) if scores else 0.0,
+    )
+    return scores
 
 
 # ─── Cross-Encoder model singleton ────────────────────────────────────
@@ -674,11 +771,33 @@ class SearchService:
     ) -> list[float]:
         """Compute Cross-Encoder scores for query-candidate pairs.
 
-        Attempts to use sentence-transformers CrossEncoder model.
-        Falls back to a simple scoring heuristic if model is unavailable.
+        优先级:
+        1. DashScope gte-rerank-v2 (中文最佳, 不占本地内存) — 默认
+        2. 本地 sentence-transformers CrossEncoder (BAAI/bge-reranker-base)
+        3. bigram heuristic fallback (无网或所有 reranker 都不可用时)
+
+        通过 ``RERANK_PROVIDER`` 环境变量切换:
+        - ``dashscope`` (默认): DashScope → bge → bigram
+        - ``local``: 跳过 DashScope, 直接用 bge → bigram
+        - ``disabled``: 跳过所有 cross-encoder, 直接 bigram fallback
 
         模型在首次调用时延迟加载 + 缓存为单例, 避免每次搜索都重新加载 400MB 权重。
         """
+        if RERANK_PROVIDER == "disabled":
+            return self._fallback_rerank_scores(query, candidates)
+
+        # 1) DashScope rerank
+        if RERANK_PROVIDER == "dashscope":
+            try:
+                docs = [c.content for c in candidates]
+                ds_scores = await _dashscope_rerank_scores(query, docs)
+                if ds_scores is not None:
+                    return ds_scores
+                # ds_scores is None → DashScope 不可用, 继续往下尝试本地模型
+            except Exception as e:  # noqa: BLE001 - defensive
+                logger.warning("DashScope rerank exception: %s", e)
+
+        # 2) 本地 BGE Cross-Encoder
         try:
             cross_encoder = _get_cross_encoder()
             if cross_encoder is None:

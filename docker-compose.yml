@@ -196,6 +196,12 @@ services:
       # 关掉 huggingface 新版 xet (CAS) 协议, 在国内网络下经常卡死;
       # 走传统 HTTP 下载更稳。
       - HF_HUB_DISABLE_XET=1
+      # Reranker provider: dashscope (默认) | local | disabled
+      # dashscope: 调阿里 gte-rerank-v2 (中文最佳, 不占本地内存)
+      # local:     用本地 BAAI/bge-reranker-base (~440MB)
+      # disabled:  跳过 cross-encoder, 用 bigram fallback
+      - RERANK_PROVIDER=${RERANK_PROVIDER:-dashscope}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:

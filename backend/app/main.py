@@ -85,11 +85,20 @@ def create_app() -> FastAPI:
     app.include_router(ik_dict_router)
 
     # ---- Startup: 后台预热 Cross-Encoder ----
-    # CrossEncoder 模型 ~440MB,首次加载需要 5-30 秒 (含从 HuggingFace 下载)。
     # 在 startup 时用后台线程预热,避免第一次 RAG 请求阻塞 SSE 直至前端超时。
+    # 仅在 RERANK_PROVIDER=local 时才预热本地 BGE 模型;dashscope 模式不需要本地模型。
     @app.on_event("startup")
     async def _warmup_cross_encoder() -> None:
         import asyncio
+        import os
+
+        provider = (os.environ.get("RERANK_PROVIDER") or "dashscope").strip().lower()
+        if provider != "local":
+            logger.info(
+                "cross_encoder_warmup_skipped",
+                reason=f"RERANK_PROVIDER={provider}",
+            )
+            return
 
         from app.services.search_service import _get_cross_encoder
 
