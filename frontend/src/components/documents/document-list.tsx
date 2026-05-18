@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   FileText,
   MoreHorizontal,
@@ -91,9 +92,33 @@ export function DocumentList({
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  // Dropdown 用 fixed 定位避免被表格 overflow / 容器卡片裁掉,
+  // anchorRect 来自触发按钮的 getBoundingClientRect()。
+  const [menuAnchor, setMenuAnchor] = useState<{
+    top: number;
+    left: number;
+    placement: "down" | "up";
+  } | null>(null);
   const pollRef = useRef<NodeJS.Timeout | null>(null);
 
   const pageSize = 20;
+
+  // 估算菜单尺寸 (3 项 × ~32px + padding ≈ 120px),
+  // 用于判断按钮下方是否有足够空间,空间不够时改为向上弹出。
+  const MENU_HEIGHT = 130;
+  const MENU_WIDTH = 144; // 与 className w-36 (9rem ≈ 144px) 对齐
+
+  const openMenuFor = useCallback((id: string, btn: HTMLElement) => {
+    const rect = btn.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const placement: "down" | "up" =
+      spaceBelow < MENU_HEIGHT && rect.top > MENU_HEIGHT ? "up" : "down";
+    const top = placement === "down" ? rect.bottom + 4 : rect.top - MENU_HEIGHT - 4;
+    // 让菜单的右边缘对齐按钮的右边缘 (与原 right-0 行为一致)
+    const left = rect.right - MENU_WIDTH;
+    setMenuAnchor({ top, left, placement });
+    setActiveMenu(id);
+  }, []);
 
   const fetchDocuments = useCallback(async () => {
     setIsLoading(true);
@@ -128,10 +153,22 @@ export function DocumentList({
     const handler = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && target.closest("[data-row-actions]")) return;
+      if (target && target.closest("[data-row-actions-menu]")) return;
       setActiveMenu(null);
+      setMenuAnchor(null);
+    };
+    const onScrollOrResize = () => {
+      setActiveMenu(null);
+      setMenuAnchor(null);
     };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
   }, [activeMenu]);
 
   // Poll every 5 seconds if any document is in processing state
@@ -262,48 +299,65 @@ export function DocumentList({
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8"
-                        onClick={() =>
-                          setActiveMenu(
-                            activeMenu === doc.id ? null : doc.id
-                          )
-                        }
+                        onClick={(e) => {
+                          if (activeMenu === doc.id) {
+                            setActiveMenu(null);
+                            setMenuAnchor(null);
+                          } else {
+                            openMenuFor(doc.id, e.currentTarget);
+                          }
+                        }}
                       >
                         <MoreHorizontal className="h-4 w-4" />
                       </Button>
-                      {activeMenu === doc.id && (
-                        <div className="absolute right-0 top-full z-10 mt-1 w-36 rounded-md border bg-popover p-1 shadow-md">
-                          <button
-                            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
-                            onClick={() => {
-                              onManageTags?.(doc);
-                              setActiveMenu(null);
+                      {activeMenu === doc.id &&
+                        menuAnchor &&
+                        typeof document !== "undefined" &&
+                        createPortal(
+                          <div
+                            data-row-actions-menu
+                            className="fixed z-50 w-36 rounded-md border bg-popover p-1 shadow-md"
+                            style={{
+                              top: `${menuAnchor.top}px`,
+                              left: `${menuAnchor.left}px`,
                             }}
                           >
-                            <Tag className="h-3.5 w-3.5" />
-                            管理标签
-                          </button>
-                          <button
-                            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
-                            onClick={() => {
-                              onMoveDocument?.(doc);
-                              setActiveMenu(null);
-                            }}
-                          >
-                            <FolderInput className="h-3.5 w-3.5" />
-                            移动
-                          </button>
-                          <button
-                            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-accent"
-                            onClick={() => {
-                              onDeleteDocument?.(doc);
-                              setActiveMenu(null);
-                            }}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            删除
-                          </button>
-                        </div>
-                      )}
+                            <button
+                              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+                              onClick={() => {
+                                onManageTags?.(doc);
+                                setActiveMenu(null);
+                                setMenuAnchor(null);
+                              }}
+                            >
+                              <Tag className="h-3.5 w-3.5" />
+                              管理标签
+                            </button>
+                            <button
+                              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+                              onClick={() => {
+                                onMoveDocument?.(doc);
+                                setActiveMenu(null);
+                                setMenuAnchor(null);
+                              }}
+                            >
+                              <FolderInput className="h-3.5 w-3.5" />
+                              移动
+                            </button>
+                            <button
+                              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-accent"
+                              onClick={() => {
+                                onDeleteDocument?.(doc);
+                                setActiveMenu(null);
+                                setMenuAnchor(null);
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              删除
+                            </button>
+                          </div>,
+                          document.body
+                        )}
                     </div>
                   </td>
                 </tr>
