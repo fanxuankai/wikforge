@@ -2,6 +2,13 @@
 
 Extracts text, heading hierarchy, tables, and image positions from PDF files.
 Handles corrupted and password-protected PDFs gracefully.
+
+环境变量 ``PDF_PARSER_MODE`` 控制解析后端:
+- ``marker`` (默认): 使用 Marker (layout 感知 + OCR), 模型权重 ~3GB,
+  内存峰值 3-4GB, 适合公式 / 复杂排版的扫描件。
+- ``fitz``: 使用 PyMuPDF, 速度快, 内存 <100MB, 不识别图像但保留文本和
+  字号 (heading 检测靠字号 + bold)。低内存环境 (<8GB Docker VM) 推荐。
+- ``auto``: 文件 <2MB 用 fitz, 否则用 marker (兼顾速度和精度)。
 """
 
 import logging
@@ -11,6 +18,12 @@ import uuid
 from app.services.parsers.base import Asset, Block, ParsedDocument, ParseError
 
 logger = logging.getLogger(__name__)
+
+
+# Auto 模式的文件大小阈值 (字节). 默认 2MB:
+# - 简历 / 短文档 (<2MB): fitz 几秒搞定
+# - 大文档 / 扫描件: 走 marker 拿到 OCR + layout
+_AUTO_FITZ_MAX_BYTES = int(os.environ.get("PDF_PARSER_AUTO_FITZ_MAX_BYTES", 2 * 1024 * 1024))
 
 
 class PdfParser:
@@ -47,7 +60,19 @@ class PdfParser:
         if not os.path.exists(file_path):
             raise ParseError(f"File not found: {file_path}", reason="corrupted")
 
+        mode = (os.environ.get("PDF_PARSER_MODE") or "marker").strip().lower()
+        if mode == "auto":
+            try:
+                size = os.path.getsize(file_path)
+            except OSError:
+                size = 0
+            mode = "fitz" if 0 < size <= _AUTO_FITZ_MAX_BYTES else "marker"
+
+        logger.info("PDF parser mode=%s for %s", mode, file_path)
+
         try:
+            if mode == "fitz":
+                return await self._parse_basic(file_path)
             return await self._parse_with_marker(file_path)
         except ParseError:
             raise

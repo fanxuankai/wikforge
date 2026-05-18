@@ -221,8 +221,9 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: wikforge-worker
-    # 并发降到 2 (PDF 解析模型 ~2-3GB, 4 并发会 OOM SIGKILL)
-    command: celery -A app.core.celery_app:celery_app worker --loglevel=info --concurrency=2
+    # 单进程串行处理 PDF (parser 模型 ~2-3GB,Docker 默认 7.65GB 内存,
+    # 2 个并行 fork 子进程会同时加载模型 OOM SIGKILL)
+    command: celery -A app.core.celery_app:celery_app worker --loglevel=info --concurrency=1
     env_file:
       - .env
     environment:
@@ -256,7 +257,11 @@ services:
       - HF_HUB_CACHE=/models/huggingface
       - TRANSFORMERS_CACHE=/models/huggingface
       - SENTENCE_TRANSFORMERS_HOME=/models/sentence_transformers
-      - DATALAB_CACHE_DIR=/models/datalab
+      # surya / marker 的模型缓存路径走 MODEL_CACHE_DIR (BaseSettings 字段名)
+      - MODEL_CACHE_DIR=/models/datalab/models
+      # PDF 解析模式: auto 表示 <2MB 用 fitz, 大文件用 marker
+      # marker 模式需要 ~3GB 内存,Docker VM 内存 <8GB 时建议设为 fitz
+      - PDF_PARSER_MODE=${PDF_PARSER_MODE:-auto}
     volumes:
       - ./backend:/app
       - models_cache:/models

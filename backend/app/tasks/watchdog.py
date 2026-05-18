@@ -79,7 +79,7 @@ def reap_stuck_documents(threshold_seconds: int | None = None) -> dict:
                               || 'watchdog: stuck in ' || status::text
                               || ' for >' || :threshold_min || 'min',
                last_status_update = NOW()
-         WHERE status = ANY(:states)
+         WHERE status::text = ANY(:states)
            AND last_status_update < :cutoff
         RETURNING id, title
         """

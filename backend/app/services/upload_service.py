@@ -410,6 +410,18 @@ class UploadService:
         # Update Redis status
         await self._update_redis_status(document)
 
+        # 重新入队到 Celery 管线 (parse → profile_match → process → chunk → embed → index)
+        # 与 upload_files / import_url 保持同样语义。
+        # 注意:retry_document 没有 await self.db.commit(),依赖外层路由 (FastAPI dep)
+        # 在 success 时自动提交,所以入队也放在这里;若 commit 失败任务会丢但 db 状态
+        # 会回滚到 failed,语义一致。
+        if _submit_pipeline is not None:
+            try:
+                _submit_pipeline(str(document.id))
+            except Exception:
+                # 入队失败不阻塞 retry 响应。前端 status=pending 用户可再次点 retry。
+                pass
+
         return document
 
     def is_permanently_failed(self, document: Document) -> bool:
