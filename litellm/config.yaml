@@ -82,20 +82,16 @@ model_list:
       <<: *dashscope
       model: openai/text-embedding-v3
 
-  # ─── Vision 模型 (DashScope 平台) ───────────────────────────────────
+  # ─── Vision 模型 ────────────────────────────────────────────────────
   # 用于 wikforge UniversalParser (L3 LLM 兜底): 扫描版 PDF / 复杂版面
   # 调用方式: messages 含 {"type":"image_url", "image_url":...}
-  # qwen-vl-plus: 性价比高, 适合一般版面理解 (~0.008 元/张)
-  # qwen-vl-max:  能力最强, 适合复杂表格 / 公式 / 手写 (~0.02 元/张)
-  - model_name: qwen-vl-plus
+  #
+  # 当前主用 gpt-5.5 (CPA, 自带多模态能力, 与 chat 模型同源便于切换)
+  # qwen3-vl-plus 作为离线 / 国产化备选 (DashScope, 阿里通义视觉系列最新版)
+  - model_name: qwen3-vl-plus
     litellm_params:
       <<: *dashscope
-      model: openai/qwen-vl-plus
-
-  - model_name: qwen-vl-max
-    litellm_params:
-      <<: *dashscope
-      model: openai/qwen-vl-max
+      model: openai/qwen3-vl-plus
 
 
 # ─────────────────────────────────────────────────────────────────────────
