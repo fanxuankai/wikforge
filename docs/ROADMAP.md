@@ -118,3 +118,16 @@
 - ✅ 系统监控 API (`/api/admin/monitoring`)
 - ✅ LLM 配置页改为跳转 LiteLLM Admin UI
 - ✅ Git 仓库初始化 + 推送 GitHub (private)
+
+> 2026-05-18 PDF 解析 OOM 修复 (夜班作业 ABCD 收尾)
+
+- ✅ **PDF 解析 OOM 死循环修复**: marker / surya 模型权重 (~3GB) 在 Docker VM (默认 7.65GB) 单 worker 加载就压死 OOM SIGKILL,导致解析永远卡在 "parsing" 状态。
+  - `worker_max_memory_per_child` 512MB → 4GB (graceful 上限,避免软杀)
+  - 模型缓存目录: `MODEL_CACHE_DIR=/models/datalab/models` (BaseSettings 字段名,之前的 `DATALAB_CACHE_DIR` 完全无效),配合 `models_cache` volume 让 1.34GB+1.34GB+1.4GB 模型只下载一次
+  - api 容器同步加 HF / SENTENCE_TRANSFORMERS / models_cache,让 Cross-Encoder reranker (BAAI/bge-reranker-base) 也走共享缓存
+  - **新增 `PDF_PARSER_MODE=auto` 模式**: 文件 <2MB (默认) 走 PyMuPDF/fitz (内存 <100MB,几秒解析完),大文件才走 marker;低内存环境可显式 `PDF_PARSER_MODE=fitz`
+  - worker concurrency: 4 → 1 (marker fork 多并发会内存翻倍)
+- ✅ **`POST /api/documents/{id}/retry` 真的 enqueue Celery**: 之前的 retry 只改 db status=pending,从来没把任务塞进 Celery 队列,导致 retry 后文档卡死 pending。现在调 `submit_pipeline()` 与 upload_files / import_url 行为一致。
+- ✅ **OpenSearch 磁盘水位线放宽**: low/high/flood_stage 调到 95/97/99% (开发场景),避免 30G/32G 满了就触发 flood_stage 把 index 设为 read-only
+- ✅ **watchdog SQL enum cast bug**: `WHERE status = ANY(:states)` 在 PostgreSQL 里 enum vs text[] 不匹配,加 `status::text` 强转,watchdog 任务恢复正常
+- ✅ **端到端验证**: 两个真实 PDF (简历 222KB / 技术规范 661KB) 全程 parse → profile_match → universal_parser_check → process → chunk → embed → index 跑通,status=completed,progress=100%
