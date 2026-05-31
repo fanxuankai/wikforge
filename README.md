@@ -387,9 +387,6 @@ wikforge/
 - ⚠️ `make secrets` 一键生成所有强随机密钥 (Master Key / Salt / Postgres / MinIO 等)
 - ❌ 当前无 HTTPS 终止, 部署到公网前请加反向代理 (Roadmap D3)
 
-## 📜 License
-
-私有项目, All rights reserved by Jolc.
 
 ---
 
