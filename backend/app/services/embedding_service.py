@@ -41,6 +41,7 @@ import hashlib
 import logging
 import math
 import re
+import time
 from collections import Counter
 from dataclasses import dataclass, field
 
@@ -185,6 +186,14 @@ class EmbeddingService:
         if not chunks:
             return []
 
+        start_time = time.perf_counter()
+        logger.info(
+            "embedding chunks started: chunk_count=%d model=%s batch_size=%d",
+            len(chunks),
+            self.model,
+            self.batch_size,
+        )
+
         texts = [chunk["text"] for chunk in chunks]
         chunk_ids = [chunk["id"] for chunk in chunks]
 
@@ -205,6 +214,14 @@ class EmbeddingService:
             )
             results.append(result)
 
+        logger.info(
+            "embedding chunks completed: chunk_count=%d dense_vectors=%d "
+            "sparse_vectors=%d elapsed_ms=%d",
+            len(chunks),
+            len(dense_vectors),
+            len(sparse_embeddings),
+            int((time.perf_counter() - start_time) * 1000),
+        )
         return results
 
     async def embed_query(self, query: str) -> EmbeddingResult:
@@ -242,6 +259,13 @@ class EmbeddingService:
         prepared = [self._prepare_text(t) for t in texts]
 
         all_vectors: list[list[float]] = []
+        batch_count = (len(prepared) + self.batch_size - 1) // self.batch_size
+        logger.info(
+            "dense embedding started: texts=%d batches=%d model=%s",
+            len(prepared),
+            batch_count,
+            self.model,
+        )
 
         for i in range(0, len(prepared), self.batch_size):
             batch = prepared[i:i + self.batch_size]
@@ -289,13 +313,23 @@ class EmbeddingService:
         """
         attempts = self.max_retries + 1
         last_error: Exception | None = None
+        start_time = time.perf_counter()
 
         for attempt in range(attempts):
             try:
-                return await asyncio.wait_for(
+                vectors = await asyncio.wait_for(
                     self._call_embedding_api(batch),
                     timeout=self.timeout,
                 )
+                logger.info(
+                    "Embedding batch %d succeeded: size=%d attempt=%d/%d elapsed_ms=%d",
+                    batch_index,
+                    len(batch),
+                    attempt + 1,
+                    attempts,
+                    int((time.perf_counter() - start_time) * 1000),
+                )
+                return vectors
             except asyncio.TimeoutError as exc:
                 last_error = exc
                 logger.warning(

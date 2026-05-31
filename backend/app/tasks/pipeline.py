@@ -234,6 +234,7 @@ def parse_document(self, document_id: str) -> dict:
         Retries on transient failures, marks as failed on permanent errors
     """
     logger.info(f"Starting parse_document for {document_id}")
+    start_time = time.perf_counter()
     _update_document_status(document_id, "parsing", 0)
 
     try:
@@ -247,6 +248,12 @@ def parse_document(self, document_id: str) -> dict:
 
         storage_path = doc_info["storage_path"]
         file_type = doc_info["file_type"]
+        logger.info(
+            "parse_document loaded document: document_id=%s file_type=%s source_file=%s",
+            document_id,
+            file_type,
+            os.path.basename(storage_path),
+        )
 
         # Download file from MinIO
         _update_document_status(document_id, "parsing", 10)
@@ -259,6 +266,12 @@ def parse_document(self, document_id: str) -> dict:
 
             mime_type = _get_mime_type(file_type)
             parser = registry.select(local_path, mime_type)
+            logger.info(
+                "parse_document selected parser: document_id=%s parser=%s mime_type=%s",
+                document_id,
+                getattr(parser, "name", parser.__class__.__name__),
+                mime_type,
+            )
 
             _update_document_status(document_id, "parsing", 30)
 
@@ -291,8 +304,11 @@ def parse_document(self, document_id: str) -> dict:
 
             _update_document_status(document_id, "parsing", 100)
             logger.info(
-                f"Parsed document {document_id}: "
-                f"{len(parsed_doc.blocks)} blocks, {len(parsed_doc.assets)} assets"
+                "Parsed document %s: blocks=%d assets=%d elapsed_ms=%d",
+                document_id,
+                len(parsed_doc.blocks),
+                len(parsed_doc.assets),
+                int((time.perf_counter() - start_time) * 1000),
             )
             return result
 
@@ -363,6 +379,7 @@ def profile_match(self, parse_result: dict) -> dict:
     """
     document_id = parse_result["document_id"]
     logger.info(f"Starting profile_match for {document_id}")
+    start_time = time.perf_counter()
     _update_document_status(document_id, "profile_matching", 0)
 
     try:
@@ -389,6 +406,12 @@ def profile_match(self, parse_result: dict) -> dict:
 
         # Load enabled profiles from database
         profiles = _load_profiles_from_db()
+        logger.info(
+            "profile_match loaded profiles: document_id=%s profile_count=%d block_count=%d",
+            document_id,
+            len(profiles),
+            len(blocks),
+        )
 
         _update_document_status(document_id, "profile_matching", 60)
 
@@ -410,7 +433,13 @@ def profile_match(self, parse_result: dict) -> dict:
             "profile_name": matched_profile.name,
         }
 
-        logger.info(f"Profile matched for {document_id}: {matched_profile.name} (priority={matched_profile.priority})")
+        logger.info(
+            "Profile matched for %s: profile=%s priority=%s elapsed_ms=%d",
+            document_id,
+            matched_profile.name,
+            matched_profile.priority,
+            int((time.perf_counter() - start_time) * 1000),
+        )
         return result
 
     except SoftTimeLimitExceeded:
@@ -474,6 +503,7 @@ def universal_parser_check(self, match_result: dict) -> dict:
     document_id = match_result["document_id"]
     profile_id = match_result.get("profile_id")
     profile_name = match_result.get("profile_name")
+    start_time = time.perf_counter()
 
     # TODO(10.11): 等任务 11 的 QualityScorer 上线后，这里需要把真实的
     #              quality_score 传进 should_run_universal_parser，让「质量分低于
@@ -492,9 +522,10 @@ def universal_parser_check(self, match_result: dict) -> dict:
 
     if not should_run:
         logger.info(
-            "universal_parser skipped for %s: profile=%s",
+            "universal_parser skipped for %s: profile=%s elapsed_ms=%d",
             document_id,
             profile_name,
+            int((time.perf_counter() - start_time) * 1000),
         )
         return match_result
 
@@ -589,6 +620,16 @@ def universal_parser_check(self, match_result: dict) -> dict:
         if isinstance(processed_metadata, dict) and processed_metadata.get("universal_parser"):
             merged_metadata["universal_parser"] = processed_metadata["universal_parser"]
 
+        logger.info(
+            "universal_parser completed for %s: input_blocks=%d output_blocks=%d "
+            "candidate_profile_id=%s elapsed_ms=%d",
+            document_id,
+            len(blocks),
+            len(new_blocks),
+            candidate_profile_id,
+            int((time.perf_counter() - start_time) * 1000),
+        )
+
         return {
             **match_result,
             # 仅在 LLM 真的产出了块时才覆盖，避免空降级吞掉所有内容。
@@ -657,6 +698,7 @@ def process_document(self, match_result: dict) -> dict:
     """
     document_id = match_result["document_id"]
     logger.info(f"Starting process_document for {document_id}")
+    start_time = time.perf_counter()
     _update_document_status(document_id, "cleaning", 0)
 
     try:
@@ -764,10 +806,14 @@ def process_document(self, match_result: dict) -> dict:
         }
 
         logger.info(
-            "Processed document %s: overall=%.4f review_enqueued=%s",
+            "Processed document %s: input_blocks=%d output_blocks=%d overall=%.4f "
+            "review_enqueued=%s elapsed_ms=%d",
             document_id,
+            len(original_blocks),
+            len(result["blocks"]),
             score.overall,
             review_enqueued,
+            int((time.perf_counter() - start_time) * 1000),
         )
         return result
 
@@ -809,11 +855,11 @@ def chunk_document(self, process_result: dict) -> dict:
     """
     document_id = process_result["document_id"]
     logger.info(f"Starting chunk_document for {document_id}")
+    start_time = time.perf_counter()
     _update_document_status(document_id, "chunking", 0)
 
     try:
-        # Chunking will be fully implemented in Task 8
-        # For now, create basic chunks from blocks
+        # 当前管线的 chunk 输入只需要文本块摘要，不把正文写入日志，避免泄露内容。
         blocks = process_result["blocks"]
         chunks = []
         for i, block in enumerate(blocks):
@@ -835,7 +881,13 @@ def chunk_document(self, process_result: dict) -> dict:
             "profile_id": process_result.get("profile_id"),
         }
 
-        logger.info(f"Chunked document {document_id}: {len(chunks)} chunks")
+        logger.info(
+            "Chunked document %s: input_blocks=%d chunks=%d elapsed_ms=%d",
+            document_id,
+            len(blocks),
+            len(chunks),
+            int((time.perf_counter() - start_time) * 1000),
+        )
         return result
 
     except SoftTimeLimitExceeded:
@@ -879,6 +931,7 @@ def embed_chunks(self, chunk_result: dict) -> dict:
     """
     document_id = chunk_result["document_id"]
     logger.info(f"Starting embed_chunks for {document_id}")
+    start_time = time.perf_counter()
     _update_document_status(document_id, "embedding", 0)
 
     try:
@@ -889,6 +942,11 @@ def embed_chunks(self, chunk_result: dict) -> dict:
         chunks = chunk_result["chunks"]
         if not chunks:
             _update_document_status(document_id, "embedding", 100)
+            logger.info(
+                "embed_chunks skipped for %s: no chunks elapsed_ms=%d",
+                document_id,
+                int((time.perf_counter() - start_time) * 1000),
+            )
             return {
                 "document_id": document_id,
                 "chunks": [],
@@ -936,7 +994,13 @@ def embed_chunks(self, chunk_result: dict) -> dict:
             "profile_id": chunk_result.get("profile_id"),
         }
 
-        logger.info(f"Embedded {len(chunks)} chunks for document {document_id}")
+        logger.info(
+            "Embedded chunks for document %s: chunks=%d embeddings=%d elapsed_ms=%d",
+            document_id,
+            len(chunks),
+            len(embeddings),
+            int((time.perf_counter() - start_time) * 1000),
+        )
         return output
 
     except SoftTimeLimitExceeded:
@@ -980,6 +1044,7 @@ def index_chunks(self, embed_result: dict) -> dict:
     """
     document_id = embed_result["document_id"]
     logger.info(f"Starting index_chunks for {document_id}")
+    start_time = time.perf_counter()
     _update_document_status(document_id, "indexing", 0)
 
     try:
@@ -994,10 +1059,21 @@ def index_chunks(self, embed_result: dict) -> dict:
 
         chunks = embed_result.get("chunks", [])
         embeddings_data = embed_result.get("embeddings", [])
+        logger.info(
+            "index_chunks preparing: document_id=%s chunks=%d embeddings=%d",
+            document_id,
+            len(chunks),
+            len(embeddings_data),
+        )
 
         if not chunks:
             _update_document_status(document_id, "done", 100)
             update_document_db_status(document_id, "completed", "done", 100)
+            logger.info(
+                "index_chunks skipped for %s: no chunks elapsed_ms=%d",
+                document_id,
+                int((time.perf_counter() - start_time) * 1000),
+            )
             return {
                 "document_id": document_id,
                 "indexed_chunks": 0,
@@ -1051,7 +1127,9 @@ def index_chunks(self, embed_result: dict) -> dict:
                 sparse_values=emb_data.get("sparse_values", []),
             ))
 
-        # Pad embeddings if needed (in case of mismatch)
+        # Embedding 数量不足属于上游降级场景：补零向量让索引链路可完成，
+        # 同时用日志暴露数量差，便于后续排查召回质量问题。
+        padded_embeddings = 0
         while len(embedding_results) < len(payloads):
             embedding_results.append(EmbeddingResult(
                 chunk_id=payloads[len(embedding_results)].chunk_id,
@@ -1059,6 +1137,15 @@ def index_chunks(self, embed_result: dict) -> dict:
                 sparse_indices=[],
                 sparse_values=[],
             ))
+            padded_embeddings += 1
+
+        if padded_embeddings:
+            logger.warning(
+                "index_chunks padded embeddings: document_id=%s padded=%d payloads=%d",
+                document_id,
+                padded_embeddings,
+                len(payloads),
+            )
 
         _update_document_status(document_id, "indexing", 40)
 
@@ -1077,7 +1164,13 @@ def index_chunks(self, embed_result: dict) -> dict:
             "status": "completed",
         }
 
-        logger.info(f"Indexed document {document_id}: {output['indexed_chunks']} chunks")
+        logger.info(
+            "Indexed document %s: qdrant_chunks=%d opensearch_docs=%d elapsed_ms=%d",
+            document_id,
+            result["qdrant_count"],
+            result["opensearch_count"],
+            int((time.perf_counter() - start_time) * 1000),
+        )
         return output
 
     except SoftTimeLimitExceeded:

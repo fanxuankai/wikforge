@@ -171,6 +171,7 @@ class RAGEngine:
         Raises:
             LLMGatewayError: If LLM call fails or times out
         """
+        start_time = time.perf_counter()
         if config is None:
             config = RAGConfig()
 
@@ -180,11 +181,23 @@ class RAGEngine:
         # Create or validate session
         if not session_id:
             session_id = str(uuid.uuid4())
+            logger.info(
+                "rag chat session created: user_id=%s session_id=%s",
+                user_id,
+                session_id,
+            )
 
         # Check if session is expired
         is_expired = await self._is_session_expired(session_id)
         if is_expired:
+            old_session_id = session_id
             session_id = str(uuid.uuid4())
+            logger.info(
+                "rag chat session rotated: user_id=%s old_session_id=%s new_session_id=%s",
+                user_id,
+                old_session_id,
+                session_id,
+            )
 
         # 1. Retrieve relevant chunks
         chunks = await self._retrieve_chunks(
@@ -193,25 +206,59 @@ class RAGEngine:
             allowed_space_ids=allowed_space_ids,
             top_k=config.top_k,
         )
+        logger.info(
+            "rag retrieval completed: user_id=%s session_id=%s chunks=%d top_k=%d",
+            user_id,
+            session_id,
+            len(chunks),
+            config.top_k,
+        )
 
         # 2. Filter by similarity threshold
         relevant_chunks = [
             c for c in chunks if c.score >= config.similarity_threshold
         ]
+        logger.info(
+            "rag relevance filtered: user_id=%s session_id=%s relevant_chunks=%d threshold=%.3f",
+            user_id,
+            session_id,
+            len(relevant_chunks),
+            config.similarity_threshold,
+        )
 
         # 3. If no relevant chunks, return "未找到相关信息"
         if not relevant_chunks:
             no_info_msg = NO_RELEVANT_INFO_MESSAGE
             # Save the turn even for no-result responses
             await self._save_turn(session_id, user_id, question, no_info_msg, [])
+            logger.info(
+                "rag no relevant chunks: user_id=%s session_id=%s elapsed_ms=%d",
+                user_id,
+                session_id,
+                int((time.perf_counter() - start_time) * 1000),
+            )
             yield no_info_msg
             return
 
         # 4. Get conversation history
         history = await self._get_conversation_history(session_id)
+        logger.info(
+            "rag history loaded: user_id=%s session_id=%s messages=%d",
+            user_id,
+            session_id,
+            len(history),
+        )
 
         # 5. Build prompt
+        # 日志只记录计数与长度，不记录 prompt / 文档片段 / 回答正文，避免泄露知识库内容。
         prompt, system_prompt = self._build_prompt(question, relevant_chunks, history)
+        logger.info(
+            "rag prompt built: user_id=%s session_id=%s prompt_len=%d context_chunks=%d",
+            user_id,
+            session_id,
+            len(prompt),
+            len(relevant_chunks),
+        )
 
         # 6. Stream LLM response
         llm = self._get_llm_gateway(config)
@@ -237,11 +284,26 @@ class RAGEngine:
 
         # 7. Parse citations from response
         citations = self._parse_citations(full_response, relevant_chunks)
+        logger.info(
+            "rag llm stream completed: user_id=%s session_id=%s response_len=%d "
+            "citations=%d elapsed_ms=%d",
+            user_id,
+            session_id,
+            len(full_response),
+            len(citations),
+            int((time.perf_counter() - start_time) * 1000),
+        )
 
         # 8. Save conversation turn
         await self._save_turn(
             session_id, user_id, question, full_response,
             [self._citation_to_dict(c) for c in citations]
+        )
+        logger.info(
+            "rag turn saved: user_id=%s session_id=%s citations=%d",
+            user_id,
+            session_id,
+            len(citations),
         )
 
     # ─── Retrieve Chunks ───────────────────────────────────────────────
@@ -270,6 +332,12 @@ class RAGEngine:
             allowed_space_ids=allowed_space_ids,
             page=1,
             page_size=top_k,
+        )
+        logger.info(
+            "rag search response received: user_id=%s total=%d returned=%d",
+            user_id,
+            response.total,
+            len(response.results),
         )
 
         # Convert SearchResult back to SearchHit for internal use

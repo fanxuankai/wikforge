@@ -9,6 +9,8 @@ Provides:
 """
 
 import io
+import logging
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -31,6 +33,7 @@ except Exception:  # pragma: no cover — Celery 不可用时 (单元测试) 不
     _submit_pipeline = None
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 # Supported file formats and their extensions
 SUPPORTED_FORMATS = {
@@ -110,6 +113,15 @@ class UploadService:
         if len(files) == 0:
             raise ValidationException("请至少上传一个文件")
 
+        start_time = time.perf_counter()
+        logger.info(
+            "upload_files started: count=%d space_id=%s folder_id=%s uploaded_by=%s",
+            len(files),
+            space_id,
+            folder_id,
+            uploaded_by,
+        )
+
         documents = []
         for file in files:
             doc = await self._upload_single_file(
@@ -122,15 +134,35 @@ class UploadService:
 
         # 落库后提交,保证 worker 拉到的 document 一定能从 DB 读到
         await self.db.commit()
+        logger.info(
+            "upload_files committed: count=%d document_ids=%s elapsed_ms=%d",
+            len(documents),
+            [str(doc.id) for doc in documents],
+            int((time.perf_counter() - start_time) * 1000),
+        )
 
         # 触发 Celery 处理管线 (parse → profile_match → process → chunk → embed → index)
         if _submit_pipeline is not None:
             for doc in documents:
                 try:
                     _submit_pipeline(str(doc.id))
+                    logger.info(
+                        "upload_files pipeline submitted: document_id=%s",
+                        doc.id,
+                    )
                 except Exception:
-                    # 入队失败不阻塞上传响应,管理员可在 admin/reviews 看到 status=pending 的文档手动重试
-                    pass
+                    # 入队失败不阻塞上传响应：文件与 DB 记录已经保存，继续返回
+                    # document_id 便于用户或管理员稍后手动重试 pending 文档。
+                    logger.warning(
+                        "upload_files pipeline submit failed: document_id=%s",
+                        doc.id,
+                        exc_info=True,
+                    )
+        else:
+            logger.warning(
+                "upload_files pipeline skipped: celery submitter unavailable count=%d",
+                len(documents),
+            )
 
         return documents
 
@@ -189,6 +221,14 @@ class UploadService:
         # Initialize Redis status
         await self._init_redis_status(document.id)
 
+        logger.info(
+            "upload_file stored: document_id=%s space_id=%s file_type=%s file_size=%d",
+            document.id,
+            space_id,
+            file_ext,
+            file_size,
+        )
+
         return document
 
     # ─── URL Import ────────────────────────────────────────────────────
@@ -219,6 +259,14 @@ class UploadService:
 
         if not url.startswith(("http://", "https://")):
             raise ValidationException("URL 必须以 http:// 或 https:// 开头")
+
+        start_time = time.perf_counter()
+        logger.info(
+            "import_url started: space_id=%s folder_id=%s uploaded_by=%s",
+            space_id,
+            folder_id,
+            uploaded_by,
+        )
 
         # Fetch content with trafilatura (30s timeout)
         try:
@@ -274,11 +322,31 @@ class UploadService:
 
         # commit + 触发管线 (与 upload_files 一致语义)
         await self.db.commit()
+        logger.info(
+            "import_url committed: document_id=%s file_size=%d elapsed_ms=%d",
+            document.id,
+            file_size,
+            int((time.perf_counter() - start_time) * 1000),
+        )
         if _submit_pipeline is not None:
             try:
                 _submit_pipeline(str(document.id))
+                logger.info(
+                    "import_url pipeline submitted: document_id=%s",
+                    document.id,
+                )
             except Exception:
-                pass
+                # 与 upload_files 一致：导入结果已落库，入队失败只影响后续异步处理。
+                logger.warning(
+                    "import_url pipeline submit failed: document_id=%s",
+                    document.id,
+                    exc_info=True,
+                )
+        else:
+            logger.warning(
+                "import_url pipeline skipped: celery submitter unavailable document_id=%s",
+                document.id,
+            )
 
         return document
 
@@ -418,9 +486,24 @@ class UploadService:
         if _submit_pipeline is not None:
             try:
                 _submit_pipeline(str(document.id))
+                logger.info(
+                    "retry_document pipeline submitted: document_id=%s retry_count=%s",
+                    document.id,
+                    document.retry_count,
+                )
             except Exception:
                 # 入队失败不阻塞 retry 响应。前端 status=pending 用户可再次点 retry。
-                pass
+                logger.warning(
+                    "retry_document pipeline submit failed: document_id=%s retry_count=%s",
+                    document.id,
+                    document.retry_count,
+                    exc_info=True,
+                )
+        else:
+            logger.warning(
+                "retry_document pipeline skipped: celery submitter unavailable document_id=%s",
+                document.id,
+            )
 
         return document
 

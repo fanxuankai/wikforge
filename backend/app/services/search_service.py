@@ -15,6 +15,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass
 
 import httpx
@@ -286,16 +287,37 @@ class SearchService:
         Returns:
             SearchResponse with paginated, ranked results
         """
+        start_time = time.perf_counter()
         page_size = min(page_size, MAX_PAGE_SIZE)
         if page < 1:
             page = 1
 
+        logger.info(
+            "search started: user_id=%s query_len=%d allowed_spaces=%d page=%d page_size=%d",
+            user_id,
+            len(query),
+            len(allowed_space_ids),
+            page,
+            page_size,
+        )
+
         # If user has no accessible spaces, return empty results
         if not allowed_space_ids:
+            logger.info(
+                "search skipped: user_id=%s reason=no_allowed_spaces elapsed_ms=%d",
+                user_id,
+                int((time.perf_counter() - start_time) * 1000),
+            )
             return SearchResponse(results=[], total=0, page=page, page_size=page_size)
 
         # Generate query embeddings
         query_embedding = await self._embedding_service.embed_query(query)
+        logger.info(
+            "search query embedding ready: user_id=%s dense_dim=%d sparse_terms=%d",
+            user_id,
+            len(query_embedding.dense_vector),
+            len(query_embedding.sparse_indices),
+        )
 
         # Build permission filters
         qdrant_filter = self._build_qdrant_filter(user_id, allowed_space_ids)
@@ -313,6 +335,12 @@ class SearchService:
 
         # RRF Fusion
         candidates = self._rrf_fusion(recall_results)
+        logger.info(
+            "search fusion completed: user_id=%s retrievers=%d candidates=%d",
+            user_id,
+            len(recall_results),
+            len(candidates),
+        )
 
         # Cross-Encoder Reranking on top candidates
         reranked = await self._cross_encoder_rerank(query, candidates[:RERANK_TOP_N])
@@ -328,6 +356,14 @@ class SearchService:
         start = (page - 1) * page_size
         end = start + page_size
         paginated = formatted[start:end]
+
+        logger.info(
+            "search completed: user_id=%s total=%d returned=%d elapsed_ms=%d",
+            user_id,
+            total,
+            len(paginated),
+            int((time.perf_counter() - start_time) * 1000),
+        )
 
         return SearchResponse(
             results=paginated,
@@ -425,13 +461,18 @@ class SearchService:
             return_exceptions=True,
         )
 
+        retriever_names = ["BM25", "Dense", "Sparse"]
         for i, result in enumerate(gathered):
-            retriever_names = ["BM25", "Dense", "Sparse"]
             if isinstance(result, Exception):
                 logger.warning(
                     f"{retriever_names[i]} retriever failed or timed out: {result}"
                 )
                 continue
+            logger.info(
+                "search retriever completed: name=%s hits=%d",
+                retriever_names[i],
+                len(result),
+            )
             results.append(result)
 
         return results
@@ -737,6 +778,7 @@ class SearchService:
             Reranked candidates sorted by Cross-Encoder score
         """
         if not candidates:
+            logger.info("search rerank skipped: no candidates")
             return candidates
 
         try:
@@ -754,6 +796,11 @@ class SearchService:
 
             # Sort by score descending
             candidates.sort(key=lambda x: x.score, reverse=True)
+            logger.info(
+                "search rerank completed: candidates=%d top_score=%.4f",
+                len(candidates),
+                candidates[0].score if candidates else 0.0,
+            )
 
         except Exception as e:
             logger.warning(f"Cross-Encoder reranking failed, using RRF scores: {e}")
@@ -784,6 +831,7 @@ class SearchService:
         模型在首次调用时延迟加载 + 缓存为单例, 避免每次搜索都重新加载 400MB 权重。
         """
         if RERANK_PROVIDER == "disabled":
+            logger.info("search rerank provider disabled: using fallback scoring")
             return self._fallback_rerank_scores(query, candidates)
 
         # 1) DashScope rerank
@@ -792,8 +840,16 @@ class SearchService:
                 docs = [c.content for c in candidates]
                 ds_scores = await _dashscope_rerank_scores(query, docs)
                 if ds_scores is not None:
+                    logger.info(
+                        "search rerank provider used: provider=dashscope candidates=%d",
+                        len(candidates),
+                    )
                     return ds_scores
-                # ds_scores is None → DashScope 不可用, 继续往下尝试本地模型
+                # DashScope 不可用时继续尝试本地模型，保证搜索仍可返回。
+                logger.warning(
+                    "search rerank provider fallback: provider=dashscope candidates=%d",
+                    len(candidates),
+                )
             except Exception as e:  # noqa: BLE001 - defensive
                 logger.warning("DashScope rerank exception: %s", e)
 
@@ -801,6 +857,7 @@ class SearchService:
         try:
             cross_encoder = _get_cross_encoder()
             if cross_encoder is None:
+                logger.info("search rerank provider fallback: provider=bigram")
                 return self._fallback_rerank_scores(query, candidates)
 
             pairs = [[query, c.content] for c in candidates]
@@ -810,6 +867,10 @@ class SearchService:
             scores = await loop.run_in_executor(
                 None,
                 lambda: cross_encoder.predict(pairs).tolist(),
+            )
+            logger.info(
+                "search rerank provider used: provider=local_cross_encoder candidates=%d",
+                len(candidates),
             )
             return scores
         except Exception as e:

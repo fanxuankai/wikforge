@@ -159,6 +159,7 @@ async def _sse_stream(
     """
     try:
         full_response = ""
+        token_count = 0
         async for token in rag_engine.chat(
             question=question,
             session_id=session_id,
@@ -167,16 +168,30 @@ async def _sse_stream(
             config=config,
         ):
             full_response += token
+            token_count += 1
             # SSE data event
             data = json.dumps({"type": "token", "content": token}, ensure_ascii=False)
             yield f"data: {data}\n\n"
 
         # Send done event
         done_data = json.dumps({"type": "done", "content": full_response}, ensure_ascii=False)
+        logger.info(
+            "RAG SSE completed: user_id=%s session_id=%s tokens=%d response_len=%d",
+            user_id,
+            session_id,
+            token_count,
+            len(full_response),
+        )
         yield f"data: {done_data}\n\n"
 
     except LLMGatewayError as e:
-        logger.error(f"RAG chat LLM error: {e}")
+        logger.error(
+            "RAG chat LLM error: user_id=%s session_id=%s reason=%s error=%s",
+            user_id,
+            session_id,
+            e.reason,
+            e,
+        )
         error_data = json.dumps(
             {"type": "error", "content": LLM_ERROR_MESSAGE},
             ensure_ascii=False,
@@ -184,7 +199,13 @@ async def _sse_stream(
         yield f"data: {error_data}\n\n"
 
     except Exception as e:
-        logger.error(f"RAG chat unexpected error: {e}", exc_info=True)
+        logger.error(
+            "RAG chat unexpected error: user_id=%s session_id=%s error=%s",
+            user_id,
+            session_id,
+            e,
+            exc_info=True,
+        )
         error_data = json.dumps(
             {"type": "error", "content": "服务异常，请稍后重试。"},
             ensure_ascii=False,
@@ -215,6 +236,16 @@ async def chat(
     """
     # Get user's accessible spaces
     allowed_space_ids = await get_user_allowed_space_ids(current_user, db)
+    logger.info(
+        "RAG chat accepted: user_id=%s session_id=%s question_len=%d allowed_spaces=%d "
+        "top_k=%d threshold=%.3f",
+        current_user.id,
+        body.session_id,
+        len(body.question),
+        len(allowed_space_ids),
+        body.top_k,
+        body.similarity_threshold,
+    )
 
     # Build RAG config from request
     config = RAGConfig(

@@ -12,6 +12,7 @@ Provides:
 import asyncio
 import base64
 import logging
+import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 
@@ -263,6 +264,7 @@ class LLMGateway:
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
+        start_time = time.perf_counter()
 
         try:
             import litellm
@@ -288,14 +290,30 @@ class LLMGateway:
             if self.api_key:
                 kwargs["api_key"] = self.api_key
 
+            logger.info(
+                "LLM stream started: model=%s messages=%d prompt_len=%d timeout=%.1f",
+                self.model,
+                len(messages),
+                len(prompt),
+                self.timeout,
+            )
             response = await asyncio.wait_for(
                 litellm.acompletion(**kwargs),
                 timeout=self.timeout + 5,
             )
 
+            token_count = 0
             async for chunk in response:
                 if chunk.choices and chunk.choices[0].delta.content:
+                    token_count += 1
                     yield chunk.choices[0].delta.content
+
+            logger.info(
+                "LLM stream completed: model=%s tokens=%d elapsed_ms=%d",
+                self.model,
+                token_count,
+                int((time.perf_counter() - start_time) * 1000),
+            )
 
         except asyncio.TimeoutError:
             logger.error(f"LLM stream timed out after {self.timeout}s (model={self.model})")
@@ -346,6 +364,7 @@ class LLMGateway:
             LLMGatewayError: On failure or timeout
         """
         effective_model = model or self.model
+        start_time = time.perf_counter()
         try:
             import litellm
 
@@ -371,6 +390,30 @@ class LLMGateway:
             if self.api_key:
                 kwargs["api_key"] = self.api_key
 
+            # 不记录 messages 原文，只记录数量和长度，避免日志中出现用户问题或知识库片段。
+            prompt_chars = 0
+            for message in messages:
+                content = message.get("content", "")
+                if isinstance(content, str):
+                    prompt_chars += len(content)
+                elif isinstance(content, list):
+                    # 多模态消息里可能包含 base64 图片，统计文本部分即可，避免
+                    # 为了日志长度把大图片内容转成字符串。
+                    prompt_chars += sum(
+                        len(str(part.get("text", "")))
+                        for part in content
+                        if isinstance(part, dict) and part.get("type") == "text"
+                    )
+                else:
+                    prompt_chars += len(str(content))
+            logger.info(
+                "LLM call started: model=%s messages=%d prompt_chars=%d timeout=%.1f",
+                effective_model,
+                len(messages),
+                prompt_chars,
+                self.timeout,
+            )
+
             # Use asyncio timeout as additional safety net
             response = await asyncio.wait_for(
                 litellm.acompletion(**kwargs),
@@ -389,6 +432,14 @@ class LLMGateway:
                     "completion_tokens": response.usage.completion_tokens,
                     "total_tokens": response.usage.total_tokens,
                 }
+
+            logger.info(
+                "LLM call completed: model=%s finish_reason=%s total_tokens=%s elapsed_ms=%d",
+                response.model or effective_model,
+                finish_reason,
+                usage.get("total_tokens"),
+                int((time.perf_counter() - start_time) * 1000),
+            )
 
             return LLMResponse(
                 content=content,
